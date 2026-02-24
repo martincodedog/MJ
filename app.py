@@ -1,36 +1,28 @@
 import streamlit as st
 from utils import load_master_data
-
-# Modular views
 from views.dashboard import show_dashboard
-from views.calculator import show_calculator_csv  # We'll tweak this name
-from views.history import show_history
+from views.calculator import show_calculator
 
-st.set_page_config(page_title="G 啦 (Local)", page_icon="🀄", layout="wide")
+st.set_page_config(page_title="雀神監控 G 啦", page_icon="🀄", layout="wide")
 
 PLAYERS = ["Martin", "Lok", "Stephen", "Fongka"]
 
-# Load Data
-df_master = load_master_data(PLAYERS)
+# 每次 Refresh 都重新攞 Sheet 啲數
+df_master = load_master_data()
 
 if 'page' not in st.session_state:
-    st.session_state.page = "總體概況"
+    st.session_state.page = "邊個係水魚？🎣"
 
-# Sidebar Navigation (Same as before)
 with st.sidebar:
-    st.markdown("### 🀄 G啦！！！！")
-    if st.button("📊 總體概況", use_container_width=True):
-        st.session_state.page = "總體概況"
-    if st.button("🧮 快速計分", use_container_width=True):
+    st.markdown("### 🀄 雀神雲端版")
+    if st.button("🎣 邊個係水魚？", width='stretch'):
+        st.session_state.page = "邊個係水魚？🎣"
+        st.rerun()
+    if st.button("🧮 快速填數", width='stretch'):
         st.session_state.page = "快速計分"
-    if st.button("📜 歷史紀錄", use_container_width=True):
-        st.session_state.page = "歷史紀錄"
+        st.rerun()
 
-# Routing
-if st.session_state.page == "總體概況":
+if st.session_state.page == "邊個係水魚？🎣":
     show_dashboard(df_master, PLAYERS)
 elif st.session_state.page == "快速計分":
-    # Pass the save function instead of the Google client
-    show_calculator_csv(PLAYERS) 
-elif st.session_state.page == "歷史紀錄":
-    show_history(df_master, PLAYERS)
+    show_calculator(PLAYERS)
