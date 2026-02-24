@@ -36,30 +36,32 @@ def load_master_data(players):
     return df_final.sort_values(by="Date")
 
 def save_to_csv(new_row_list, players):
-    """
-    將新對局存入當日的專屬 CSV (例如 records/2026-02-24.csv)
-    """
-    if not os.path.exists(RECORDS_DIR):
-        os.makedirs(RECORDS_DIR)
-
-    # 取得今日日期作為檔名
+    # 1. 獲取絕對路徑，防止路徑偏離
+    current_dir = os.path.dirname(os.path.abspath(__file__))
+    records_dir = os.path.join(current_dir, "records")
+    
+    # 2. 如果資料夾不存在，強制建立
+    if not os.path.exists(records_dir):
+        os.makedirs(records_dir)
+    
+    # 3. 檔名包含日期
     today_str = datetime.now().strftime("%Y-%m-%d")
-    file_path = os.path.join(RECORDS_DIR, f"{today_str}.csv")
+    file_path = os.path.join(records_dir, f"{today_str}.csv")
     
-    # 定義欄位名稱
     columns = ["Date"] + players + ["Remark"]
-    
-    # 建立新列 DataFrame
     new_df = pd.DataFrame([new_row_list], columns=columns)
 
-    if os.path.exists(file_path):
-        # 如果今日檔案已存在，附加在後面
-        df_today = pd.read_csv(file_path)
-        df_today = pd.concat([df_today, new_df], ignore_index=True)
-        df_today.to_csv(file_path, index=False)
-    else:
-        # 如果今日第一場，建立新檔
-        new_df.to_csv(file_path, index=False)
+    try:
+        if os.path.exists(file_path):
+            df_today = pd.read_csv(file_path)
+            df_today = pd.concat([df_today, new_df], ignore_index=True)
+            df_today.to_csv(file_path, index=False)
+        else:
+            new_df.to_csv(file_path, index=False)
+        return True # 代表成功
+    except Exception as e:
+        st.error(f"存檔失敗: {e}") # 在頁面上直接顯示錯誤
+        return False
 
 def get_base_money(fan):
     """番數對應表"""
