@@ -7,21 +7,16 @@ RECORDS_DIR = "records"
 MASTER_FILE = "mahjong_data.csv"
 
 def load_master_data(players):
-    """
-    從兩處讀取數據：
-    1. 原始的 mahjong_data.csv (歷史總表)
-    2. records/ 資料夾下所有的每日 CSV
-    """
     all_data = []
 
-    # 1. 讀取原始總表 (如果存在)
+    # 1. 讀取原始總表
     if os.path.exists(MASTER_FILE):
         df_master = pd.read_csv(MASTER_FILE)
         all_data.append(df_master)
 
     # 2. 讀取 records/ 資料夾內的所有每日 CSV
     if not os.path.exists(RECORDS_DIR):
-        os.makedirs(RECORDS_DIR) # 自動建立資料夾
+        os.makedirs(RECORDS_DIR)
     
     for filename in os.listdir(RECORDS_DIR):
         if filename.endswith(".csv"):
@@ -29,13 +24,15 @@ def load_master_data(players):
             df_day = pd.read_csv(file_path)
             all_data.append(df_day)
 
-    # 如果完全沒數據，回傳空白範本
     if not all_data:
         return pd.DataFrame(columns=["Date"] + players + ["Remark"])
 
-    # 合併所有數據
+    # 合併數據
     df_final = pd.concat(all_data, ignore_index=True)
-    df_final['Date'] = pd.to_datetime(df_final['Date'])
+    
+    # --- 修正點：使用 format='mixed' 來兼容 2024/01/01 和 2024-01-01 ---
+    df_final['Date'] = pd.to_datetime(df_final['Date'], format='mixed')
+    
     return df_final.sort_values(by="Date")
 
 def save_to_csv(new_row_list, players):
