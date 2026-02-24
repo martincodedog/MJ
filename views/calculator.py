@@ -75,16 +75,52 @@ def show_calculator(players):
         for p in players:
             if p != winner: res[p] = -base
 
-    # --- 3. 實時動態預覽 ---
-    # 在按按鈕前，直接顯示分數變化，視覺上非常 iPhone 化
+    # --- 3. ⚡ 變動預覽 UI 強化版 ---
     st.markdown("#### ⚡ 變動預覽")
-    cols = st.columns(4)
-    for i, p in enumerate(players):
-        val = res[p]
-        color = "#28a745" if val > 0 else "#dc3545" if val < 0 else "#666"
-        cols[i].markdown(f"<div style='text-align:center;'><b>{p[0]}</b><br><span style='color:{color}; font-weight:bold;'>{val:+d}</span></div>", unsafe_allow_html=True)
+    
+    # 用一個 Container 框住預覽區，增加視覺一致性
+    with st.container():
+        # 建立四行，iPhone 上面每行顯示一個玩家
+        cols = st.columns(4)
+        
+        for i, p in enumerate(players):
+            val = res[p]
+            
+            # 根據贏輸決定顏色同背景
+            if val > 0:
+                bg_color = "#e6f4ea"  # 淺綠背景
+                text_color = "#1e8e3e" # 深綠字
+                border_color = "#1e8e3e"
+                symbol = "+"
+            elif val < 0:
+                bg_color = "#fce8e6"  # 淺紅背景
+                text_color = "#d93025" # 深紅字
+                border_color = "#d93025"
+                symbol = ""
+            else:
+                bg_color = "#f1f3f4"  # 灰色背景
+                text_color = "#5f6368" # 灰色字
+                border_color = "#bdc1c6"
+                symbol = ""
 
-    st.write("") # 撐開空間
+            # 注入自定義 HTML 卡片
+            with cols[i]:
+                st.markdown(f"""
+                <div style="
+                    background-color: {bg_color};
+                    border: 1px solid {border_color};
+                    border-radius: 10px;
+                    padding: 8px 5px;
+                    text-align: center;
+                ">
+                    <p style="margin: 0; font-size: 12px; color: #555; font-weight: bold;">{p[0]}</p>
+                    <p style="margin: 0; font-size: 16px; font-weight: 900; color: {text_color};">
+                        {symbol}{val}
+                    </p>
+                </div>
+                """, unsafe_allow_html=True)
+
+    st.write("") # 增加與按鈕之間的間距
 
     # --- 4. 提交按鈕 ---
     if st.button("🚀 確認紀錄並上傳雲端", width='stretch', type="primary"):
