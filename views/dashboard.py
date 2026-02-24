@@ -3,9 +3,7 @@ import pandas as pd
 import numpy as np
 
 def calculate_max_streak(data):
-    """計算連續贏錢天數的最大值"""
-    max_streak = 0
-    current_streak = 0
+    max_streak, current_streak = 0, 0
     for val in data:
         if val > 0:
             current_streak += 1
@@ -15,75 +13,83 @@ def calculate_max_streak(data):
     return max_streak
 
 def show_dashboard(df_master, players):
-    st.title("📊 雀神進階數據分析")
+    # 標題改為置中且精簡
+    st.markdown("<h2 style='text-align: center;'>🎣 雀界即時戰況</h2>", unsafe_allow_html=True)
 
-    # --- 1. 預測與區間分析 ---
-    st.subheader("🔮 戰力預測與手感分析")
-    m_cols = st.columns(4)
-
-    for i, p in enumerate(players):
+    # --- 1. 縱向戰力卡片 (iPhone 必備) ---
+    for p in players:
         data = df_master[p].values
         if len(data) >= 3:
-            # A. 加權移動平均 (WMA)
+            # 統計運算
             weights = np.arange(1, len(data) + 1)
             prediction = np.average(data, weights=weights)
-            
-            # B. 波動標準差 (Sigma)
             std_dev = np.std(data)
-            lower_bound = prediction - (std_dev * 0.5)
-            upper_bound = prediction + (std_dev * 0.5)
+            total_sum = sum(data)
             
-            # C. Z-Score 狀態
-            last_score = data[-1]
-            avg_score = np.mean(data)
-            z_score = (last_score - avg_score) / std_dev if std_dev > 0 else 0
-            
-            if z_score > 1: status = "🔥 手感火熱"
-            elif z_score < -1: status = "❄️ 手感冰冷"
-            else: status = "⚖️ 表現穩定"
+            # 手感評級
+            z_score = (data[-1] - np.mean(data)) / std_dev if std_dev > 0 else 0
+            if z_score > 1: status, color = "🔥 極度亢奮", "#FF4B4B"
+            elif z_score < -1: status, color = "❄️ 手感冰冷", "#1C83E1"
+            else: status, color = "⚖️ 走勢平穩", "#31333F"
 
-            with m_cols[i]:
-                st.metric(label=f"{p} 累積結餘", value=f"${sum(data):,.0f}")
-                st.markdown(f"**下場預測:** `${prediction:+.1f}`")
-                st.caption(f"預估範圍: `${lower_bound:.0f}` ~ `${upper_bound:.0f}`")
-                st.info(status)
+            # 針對 iPhone 螢幕設計的大字體卡片
+            st.markdown(f"""
+            <div style="
+                border-radius: 15px; 
+                padding: 20px; 
+                margin-bottom: 15px; 
+                background-color: #ffffff;
+                box-shadow: 0px 4px 12px rgba(0,0,0,0.08);
+                border-left: 10px solid {color};
+            ">
+                <div style="display: flex; justify-content: space-between; align-items: center;">
+                    <span style="font-size: 20px; font-weight: bold; color: #333;">{p}</span>
+                    <span style="font-size: 14px; font-weight: bold; color: {color};">{status}</span>
+                </div>
+                <div style="margin-top: 10px; display: flex; justify-content: space-between; align-items: flex-end;">
+                    <div>
+                        <p style="margin: 0; font-size: 12px; color: #888;">總結餘</p>
+                        <p style="margin: 0; font-size: 32px; font-weight: 900; color: #111;">${total_sum:,.0f}</p>
+                    </div>
+                    <div style="text-align: right;">
+                        <p style="margin: 0; font-size: 12px; color: #888;">下場預測</p>
+                        <p style="margin: 0; font-size: 24px; font-weight: 800; color: {color};">${prediction:+.1f}</p>
+                    </div>
+                </div>
+                <div style="margin-top: 15px; background-color: #f8f9fb; padding: 10px; border-radius: 8px; text-align: center;">
+                    <span style="font-size: 12px; color: #666;">波動區間：<b>${prediction-(std_dev*0.5):.0f} ～ ${prediction+(std_dev*0.5):.0f}</b></span>
+                </div>
+            </div>
+            """, unsafe_allow_html=True)
         else:
-            m_cols[i].write(f"{p}: 數據不足")
-
-    # --- 預測方法備註 ---
-    with st.expander("ℹ️ 預測模型說明 (Prediction Methodology)"):
-        st.write("""
-        本系統採用以下統計模型進行分析：
-        1. **加權預測 (WMA)**：並非簡單平均，而是給予**近期對局**更高的權重，反映玩家最近的手感趨勢。
-        2. **預估範圍 ($\sigma$)**：基於歷史波動率。範圍越寬，代表該玩家打法較「大出大進」；範圍越窄，代表打法趨於穩健。
-        3. **狀態判斷 (Z-Score)**：衡量最後一場表現與長期平均值的離散程度，用以判斷玩家是否處於「連旺」或「連衰」的統計臨界點。
-        """)
+            st.warning(f"⚠️ {p}: 數據不足")
 
     st.divider()
 
-    # --- 2. 累計走勢圖 ---
-    st.subheader("📈 歷史戰鬥力走勢 (累積損益)")
+    # --- 2. 走勢圖 (調整高度適合手機) ---
+    st.markdown("#### 📈 累計損益曲線")
     cumulative_df = df_master.set_index("Date")[players].cumsum()
-    st.line_chart(cumulative_df)
+    st.line_chart(cumulative_df, height=250)
 
-    # --- 3. 專業統計 KPI ---
-    st.divider()
-    st.subheader("📋 深度統計指標 (Deep Analytics)")
-    
+    # --- 3. 深度數據表 (使用 st.dataframe 支援左右滑動) ---
+    st.markdown("#### 📋 核心指標 (左右滑動查看)")
     stats_list = []
     for p in players:
         p_data = df_master[p]
-        win_days = (p_data > 0).sum()
-        total_days = len(p_data)
         stability = (p_data.mean() / p_data.std()) if p_data.std() > 0 else 0
-        
         stats_list.append({
             "玩家": p,
-            "勝率": f"{(win_days/total_days*100):.1f}%",
-            "波動風險($\sigma$)": f"{p_data.std():.1f}",
-            "穩定係數": f"{stability:.2f}",
-            "最高連勝": f"{calculate_max_streak(p_data)} 場",
-            "期望值 (EV)": f"${p_data.mean():.1f}"
+            "勝率": f"{( (p_data > 0).sum()/len(p_data)*100 ):.0f}%",
+            "穩度": f"{stability:.2f}",
+            "連勝": f"{calculate_max_streak(p_data)}",
+            "EV": f"{p_data.mean():.0f}"
         })
     
-    st.table(pd.DataFrame(stats_list).set_index("玩家"))
+    # iPhone 上 st.table 會變形，用 st.dataframe 並設定 stretch 較好
+    st.dataframe(
+        pd.DataFrame(stats_list).set_index("玩家"), 
+        width='stretch'
+    )
+
+    with st.expander("🔬 模型備註"):
+        st.caption("採 WMA 加權移動平均，近期戰績權重較高。預測範圍以 0.5σ 計算。")
