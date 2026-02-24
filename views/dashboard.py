@@ -3,8 +3,7 @@ import pandas as pd
 import numpy as np
 
 def calculate_max_streak(data):
-    max_streak = 0
-    current_streak = 0
+    max_streak, current_streak = 0, 0
     for val in data:
         if val > 0:
             current_streak += 1
@@ -14,81 +13,76 @@ def calculate_max_streak(data):
     return max_streak
 
 def show_dashboard(df_master, players):
-    st.title("📊 雀神數據監控")
+    # Use a smaller header for mobile
+    st.markdown("### 📊 雀神監控")
 
-    # --- 1. 戰力預測區 (針對 iPhone 優化為卡片式佈局) ---
-    st.subheader("🔮 下場預測與手感")
+    # --- 1. Compact Prediction Tiles ---
+    # We use columns to keep things side-by-side even on some larger phones
+    # On small iPhones, they will stack, but we've reduced the padding.
     
-    # 在手機端，這四個 column 會自動變成上下排列的卡片
     for p in players:
         data = df_master[p].values
-        with st.container(border=True): # 使用邊框營造卡片感
+        with st.container():
             if len(data) >= 3:
-                # 統計運算
+                # Math Logic
                 weights = np.arange(1, len(data) + 1)
                 prediction = np.average(data, weights=weights)
                 std_dev = np.std(data)
-                lower_bound = prediction - (std_dev * 0.5)
-                upper_bound = prediction + (std_dev * 0.5)
                 
-                last_score = data[-1]
-                avg_score = np.mean(data)
-                z_score = (last_score - avg_score) / std_dev if std_dev > 0 else 0
-                
-                # 色彩與狀態
-                if z_score > 1: status, color = "🔥 手感火熱", "#ff4b4b"
-                elif z_score < -1: status, color = "❄️ 手感冰冷", "#1c83e1"
-                else: status, color = "⚖️ 表現穩定", "#7d7d7d"
+                # Z-Score for Status Color
+                z_score = (data[-1] - np.mean(data)) / std_dev if std_dev > 0 else 0
+                color = "#FF4B4B" if z_score > 1 else "#1C83E1" if z_score < -1 else "#31333F"
+                status_icon = "🔥" if z_score > 1 else "❄️" if z_score < -1 else "⚖️"
 
-                # 顯示排版
-                col_name, col_val = st.columns([1, 1])
-                with col_name:
-                    st.markdown(f"### {p}")
-                    st.write(status)
-                with col_val:
-                    st.metric("總結餘", f"${sum(data):,.0f}")
-
-                # --- 放大預測字體 ---
+                # Compact HTML Card
                 st.markdown(f"""
-                <div style="background-color: #f0f2f6; padding: 15px; border-radius: 10px; margin-top: 10px;">
-                    <p style="margin: 0; font-size: 14px; color: #555;">下場預測金額</p>
-                    <h2 style="margin: 0; color: {color}; font-size: 32px;">${prediction:+.1f}</h2>
-                    <p style="margin: 0; font-size: 12px; color: #888;">預估範圍: ${lower_bound:.0f} ~ ${upper_bound:.0f}</p>
+                <div style="
+                    border: 1px solid #e6e9ef; 
+                    border-radius: 8px; 
+                    padding: 10px; 
+                    margin-bottom: 8px; 
+                    background-color: white;
+                    box-shadow: 0px 1px 2px rgba(0,0,0,0.05);
+                ">
+                    <div style="display: flex; justify-content: space-between; align-items: center;">
+                        <span style="font-weight: bold; font-size: 16px;">{p} {status_icon}</span>
+                        <span style="font-size: 14px; color: #666;">總結餘: <b>${sum(data):,.0f}</b></span>
+                    </div>
+                    <div style="margin-top: 5px; display: flex; align-items: baseline;">
+                        <span style="font-size: 12px; color: #888; margin-right: 8px;">下場預測:</span>
+                        <span style="font-size: 22px; font-weight: 800; color: {color};">${prediction:+.1f}</span>
+                        <span style="font-size: 11px; color: #aaa; margin-left: auto;">
+                            範圍: {prediction-(std_dev*0.5):.0f}~{prediction+(std_dev*0.5):.0f}
+                        </span>
+                    </div>
                 </div>
                 """, unsafe_allow_html=True)
             else:
-                st.write(f"⚠️ {p}: 數據不足 (需至少3場)")
+                st.caption(f"⚠️ {p}: 數據不足")
 
-    st.divider()
-
-    # --- 2. 趨勢圖 (針對手機調整高度) ---
-    st.subheader("📈 歷史戰鬥力走勢")
+    # --- 2. Chart Section (Miniature) ---
+    st.markdown("#### 📈 走勢")
     cumulative_df = df_master.set_index("Date")[players].cumsum()
-    # 在手機上高度不宜太高，方便滑動
-    st.line_chart(cumulative_df, height=300)
+    # Shorter height to save vertical space on mobile
+    st.line_chart(cumulative_df, height=200)
 
-    # --- 3. 專業統計表 (使用 DataFrame 讓手機可以左右滑動) ---
-    st.divider()
-    st.subheader("📋 深度統計指標")
-    
+    # --- 3. Compact KPI Table ---
+    st.markdown("#### 📋 指標")
     stats_list = []
     for p in players:
         p_data = df_master[p]
-        win_days = (p_data > 0).sum()
-        total_days = len(p_data)
         stability = (p_data.mean() / p_data.std()) if p_data.std() > 0 else 0
-        
         stats_list.append({
             "玩家": p,
-            "勝率": f"{(win_days/total_days*100):.1f}%",
-            "穩定": f"{stability:.2f}",
-            "連勝": f"{calculate_max_streak(p_data)}場",
-            "EV": f"${p_data.mean():.1f}"
+            "勝率": f"{( (p_data > 0).sum()/len(p_data)*100 ):.0f}%",
+            "穩": f"{stability:.1f}",
+            "連": f"{calculate_max_streak(p_data)}",
+            "EV": f"{p_data.mean():.0f}"
         })
     
-    # 手機端使用 dataframe 比 table 好，因為支援橫向滾動
-    st.dataframe(pd.DataFrame(stats_list).set_index("玩家"), use_container_width=True)
-
-    # --- 預測方法備註 ---
-    with st.expander("ℹ️ 預測模型說明"):
-        st.caption("採用 WMA 加權移動平均與 0.5σ 標準差區間計算。")
+    # Using st.dataframe with a small height
+    st.dataframe(
+        pd.DataFrame(stats_list).set_index("玩家"), 
+        use_container_width=True,
+        height=175
+    )
