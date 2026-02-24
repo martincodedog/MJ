@@ -58,7 +58,7 @@ if st.session_state.page == "總體概況":
     show_dashboard(df_master, PLAYERS)
 
 elif st.session_state.page == "快速計分":
-    show_calculator(client, SHEET_ID, MASTER_SHEET, PLAYERS)
+    show_calculator(PLAYERS)
 
 elif st.session_state.page == "歷史紀錄":
     show_history(df_master, PLAYERS)
