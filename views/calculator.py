@@ -114,4 +114,12 @@ def show_calculator(client, sheet_id, master_sheet_name, players):
                     today_date_str, 
                     int(today_df["Martin"].sum()), int(today_df["Lok"].sum()), 
                     int(today_df["Stephen"].sum()), int(today_df["Fongka"].sum()), 
-                    f"Auto-Sync: {sheet_tab_
+                    f"Auto-Sync: {sheet_tab_name}"
+                ]
+                rows_to_keep.append(summary_row)
+                ws_master.clear()
+                ws_master.update('A1', rows_to_keep)
+                st.success("🎊 結算成功！")
+                st.cache_data.clear()
+            else:
+                st.error("今日尚無對局數據。")
