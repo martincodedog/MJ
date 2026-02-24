@@ -1,125 +1,102 @@
 import streamlit as st
-import pandas as pd
 from datetime import datetime
-from utils import get_base_money
+import pandas as pd
+from utils import SHEET_URL, get_base_money
+from streamlit_gsheets import GSheetsConnection
 
-def get_or_create_worksheet(client, sheet_id, sheet_name):
-    sh = client.open_by_key(sheet_id)
+def show_calculator(players):
+    st.markdown("<h2 style='text-align: center;'>🧮 快速計分</h2>", unsafe_allow_html=True)
+    conn = st.connection("gsheets", type=GSheetsConnection)
+    
+    # --- 1. 最後一局紀錄與今日戰況 ---
+    today_tab_name = datetime.now().strftime("%Y-%m-%d")
+    
     try:
-        return sh.worksheet(sheet_name)
-    except:
-        new_ws = sh.add_worksheet(title=sheet_name, rows="100", cols="10")
-        new_ws.append_row(["Date", "Martin", "Lok", "Stephen", "Fongka", "Remark"])
-        return new_ws
-
-def show_calculator(client, sheet_id, master_sheet_name, players):
-    today_date_str = datetime.now().strftime("%Y/%m/%d")
-    sheet_tab_name = today_date_str.replace("/", "-")
-    
-    st.title(f"🧮 今日戰局: {today_date_str}")
-    
-    # --- 1. 即時累計計分板 ---
-    with st.container(border=True):
-        st.subheader("🏆 今日即時累計")
-        try:
-            sh = client.open_by_key(sheet_id)
-            ws_today = sh.worksheet(sheet_tab_name)
-            today_df = pd.DataFrame(ws_today.get_all_records())
-            for p in players:
-                today_df[p] = pd.to_numeric(today_df[p], errors='coerce').fillna(0)
-        except:
-            today_df = pd.DataFrame(columns=["Date"] + players + ["Remark"])
-
-        m_cols = st.columns(4)
-        for i, p in enumerate(players):
-            day_val = today_df[p].sum() if p in today_df.columns else 0
-            m_cols[i].metric(label=p, value=f"${day_val:,.0f}")
+        # 同時讀取 Master Record 確保數據一致性
+        df_master = conn.read(spreadsheet=SHEET_URL, worksheet="Master Record", ttl=0)
+        
+        if not df_master.empty:
+            last_record = df_master.iloc[-1]
+            
+            # --- iPhone 專用最後紀錄卡片 ---
+            with st.container():
+                st.markdown(f"""
+                <div style="background-color: #f0f2f6; padding: 15px; border-radius: 12px; border: 1px solid #dcdfe6; margin-bottom: 20px;">
+                    <p style="margin: 0; font-size: 12px; color: #666;">⏮️ 最後一局紀錄 ({last_record['Date'][-5:]})</p>
+                    <p style="margin: 5px 0; font-size: 14px; font-weight: bold;">{last_record['Remark']}</p>
+                    <div style="display: flex; justify-content: space-between; font-family: monospace; font-size: 13px;">
+                        <span>M: {int(last_record['Martin']):+d}</span>
+                        <span>L: {int(last_record['Lok']):+d}</span>
+                        <span>S: {int(last_record['Stephen']):+d}</span>
+                        <span>F: {int(last_record['Fongka']):+d}</span>
+                    </div>
+                </div>
+                """, unsafe_allow_html=True)
+                
+                # 刪除最後一筆按鈕 (危險動作使用紅色)
+                if st.button("🗑️ 刪除最後一筆 (入錯數專用)", width='stretch'):
+                    new_master = df_master.drop(df_master.index[-1])
+                    conn.update(spreadsheet=SHEET_URL, worksheet="Master Record", data=new_master)
+                    st.warning("最後一筆紀錄已撤銷")
+                    st.rerun()
+    except Exception as e:
+        st.info("尚未有對局紀錄")
 
     st.divider()
 
-    # --- 2. 錄入與預覽邏輯 (修正重點) ---
-    col_left, col_right = st.columns([1.2, 1], gap="large")
-
-    with col_left:
-        st.subheader("📝 本局輸入")
-        # 注意：我們不使用 st.form 包裹選擇器，這樣選擇改變時預覽才會即時變動
-        winner = st.selectbox("🏆 贏家 (Winner)", players)
-        mode = st.radio("🎲 方式", ["出統", "自摸", "包自摸"], horizontal=True)
+    # --- 2. 錄入界面 (iPhone 優化) ---
+    # 使用大元件，方便手指點擊
+    winner = st.selectbox("🏆 誰贏了？", players)
+    
+    mode = st.radio("🎲 贏牌方式", ["出統", "自摸", "包自摸"], horizontal=True)
+    
+    if mode in ["出統", "包自摸"]:
+        loser = st.selectbox("💸 誰付錢？", [p for p in players if p != winner])
+    else:
+        loser = "三家"
         
-        # 動態顯示支付方
-        if mode == "自摸":
-            loser = "三家"
-            st.info("自摸模式：其餘三家各付一份。")
-        else:
-            loser = st.selectbox("💸 支付方 (Loser)", [p for p in players if p != winner])
-        
-        fan = st.select_slider("🔥 翻數 (Fan)", options=list(range(3, 11)), value=3)
-        base = get_base_money(fan)
-
-    with col_right:
-        st.subheader("🧐 數據預覽")
-        
-        # --- 核心計算邏輯修正 ---
-        res = {p: 0 for p in players}
-        
-        if mode == "出統":
-            # 贏家拿一份，輸家出一份
-            res[winner] = base
-            res[loser] = -base
-        elif mode == "包自摸":
-            # 輸家全包三份的錢
-            res[winner] = base * 3
-            res[loser] = -(base * 3)
-        elif mode == "自摸":
-            # 贏家拿三份，其餘三人各出一份
-            res[winner] = base * 3
-            for p in players:
-                if p != winner:
-                    res[p] = -base
-        
-        # 建立預覽表格
-        preview_list = []
+    fan = st.select_slider("🔥 翻數", options=list(range(3, 11)), value=3)
+    
+    # 計算分數
+    base = get_base_money(fan)
+    res = {p: 0 for p in players}
+    if mode == "出統":
+        res[winner], res[loser] = base, -base
+    elif mode == "包自摸":
+        res[winner], res[loser] = base * 3, -(base * 3)
+    else:
+        res[winner] = base * 3
         for p in players:
-            val = res[p]
-            status = "👑 +" if val > 0 else "💸 " if val < 0 else "-"
-            preview_list.append({"玩家": p, "預計損益": f"{status}${abs(val)}"})
-        
-        st.table(pd.DataFrame(preview_list).set_index("玩家"))
-        
-        # 錄入按鈕
-        if st.button("🚀 確認錄入此局", use_container_width=True, type="primary"):
-            ws_target = get_or_create_worksheet(client, sheet_id, sheet_tab_name)
-            new_row = [
-                datetime.now().strftime("%H:%M"), 
-                res["Martin"], res["Lok"], res["Stephen"], res["Fongka"], 
-                f"{winner} {mode} {fan}番"
-            ]
-            ws_target.append_row(new_row)
-            st.toast(f"✅ 已紀錄: {winner} +${res[winner]}", icon='🀄')
-            st.rerun()
+            if p != winner: res[p] = -base
 
-    # --- 3. 完場結算 ---
-    st.markdown("<br>", unsafe_allow_html=True)
-    with st.expander("🏁 完場結算 (同步至總表)"):
-        if st.button("📤 執行結算並覆寫 Master", use_container_width=True):
-            if not today_df.empty:
-                ws_master = sh.worksheet(master_sheet_name)
-                all_data = ws_master.get_all_values()
-                rows_to_keep = [all_data[0]]
-                for row in all_data[1:]:
-                    if row[0] != today_date_str:
-                        rows_to_keep.append(row)
-                
-                summary_row = [
-                    today_date_str, 
-                    int(today_df["Martin"].sum()), int(today_df["Lok"].sum()), 
-                    int(today_df["Stephen"].sum()), int(today_df["Fongka"].sum()), 
-                    f"Auto-Sync: {sheet_tab_name}"
-                ]
-                rows_to_keep.append(summary_row)
-                ws_master.clear()
-                ws_master.update('A1', rows_to_keep)
-                st.success("🎊 結算成功！")
-                st.cache_data.clear()
-            else:
-                st.error("今日尚無對局數據。")
+    # --- 3. 實時動態預覽 ---
+    # 在按按鈕前，直接顯示分數變化，視覺上非常 iPhone 化
+    st.markdown("#### ⚡ 變動預覽")
+    cols = st.columns(4)
+    for i, p in enumerate(players):
+        val = res[p]
+        color = "#28a745" if val > 0 else "#dc3545" if val < 0 else "#666"
+        cols[i].markdown(f"<div style='text-align:center;'><b>{p[0]}</b><br><span style='color:{color}; font-weight:bold;'>{val:+d}</span></div>", unsafe_allow_html=True)
+
+    st.write("") # 撐開空間
+
+    # --- 4. 提交按鈕 ---
+    if st.button("🚀 確認紀錄並上傳雲端", width='stretch', type="primary"):
+        with st.spinner('正在同步中...'):
+            new_entry = {
+                "Date": datetime.now().strftime("%Y-%m-%d %H:%M"),
+                "Martin": res["Martin"],
+                "Lok": res["Lok"],
+                "Stephen": res["Stephen"],
+                "Fongka": res["Fongka"],
+                "Remark": f"{winner} {mode} {fan}番"
+            }
+            # 更新 Master Record
+            master_df = conn.read(spreadsheet=SHEET_URL, worksheet="Master Record", ttl=0)
+            # 確保欄位完全對齊
+            new_row_df = pd.DataFrame([new_entry])[master_df.columns]
+            updated_master = pd.concat([master_df, new_row_df], ignore_index=True)
+            conn.update(spreadsheet=SHEET_URL, worksheet="Master Record", data=updated_master)
+            
+            st.success("紀錄成功！")
+            st.rerun()
