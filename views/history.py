@@ -11,30 +11,41 @@ def show_history(df_master, players):
     # --- 1. 年度總結 (Yearly Summary) ---
     st.subheader("📅 年度戰績總計")
     
-    # 複製一份數據來做處理，避免影響原始資料
     df_yearly = df_master.copy()
     df_yearly['Year'] = df_yearly['Date'].dt.year
     
-    # 按年份加總
+    # 算出年度總計數字
     yearly_summary = df_yearly.groupby('Year')[players].sum().sort_index(ascending=False)
     
-    # 格式化年度總結表格
-    st.dataframe(
-        yearly_summary, 
-        use_container_width=True,
-        column_config={
-            "Year": st.column_config.TextColumn("年份"),
-            **{p: st.column_config.NumberColumn(f"{p} 總計", format="$%d") for p in players}
-        }
-    )
+    # 定義 Emoji 邏輯：每行最高分加 👑，最低分加 💸
+    def add_summary_emojis(row):
+        # 找出最大值和最小值的索引
+        max_idx = row.idxmax()
+        min_idx = row.idxmin()
+        
+        # 轉換為字串並加入格式
+        formatted = row.apply(lambda x: f"${x:,.0f}")
+        
+        # 如果有正分才加皇冠，有負分才加錢包 (避免大家平手時亂加)
+        if row[max_idx] > 0:
+            formatted[max_idx] = f"👑 {formatted[max_idx]}"
+        if row[min_idx] < 0:
+            formatted[min_idx] = f"💸 {formatted[min_idx]}"
+            
+        return formatted
+
+    # 應用格式化
+    display_yearly = yearly_summary.apply(add_summary_emojis, axis=1)
+
+    # 顯示年度表格 (使用 st.table 確保 Emoji 完整顯示)
+    st.table(display_yearly)
 
     st.divider()
 
-    # --- 2. 詳細對局紀錄 (Detailed Logs) ---
+    # --- 2. 每日對局明細 ---
     st.subheader("📝 每日對局明細")
     
     history_display = df_master.set_index("Date")[players].sort_index(ascending=False)
-    # 將日期轉為字串格式
     history_display.index = history_display.index.strftime('%Y/%m/%d')
     
     st.dataframe(
@@ -45,7 +56,7 @@ def show_history(df_master, players):
         }
     )
 
-    # --- 3. 最近對局備註 (如果有 Remark 欄位) ---
+    # --- 3. 最近備註 ---
     if 'Remark' in df_master.columns:
         st.divider()
         st.subheader("💬 最近對局摘要")
