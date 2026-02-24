@@ -14,7 +14,7 @@ def calculate_max_streak(data):
 
 def show_dashboard(df_master, players):
     # Use a smaller header for mobile
-    st.markdown("### 📊 雀神監控")
+    st.markdown("### 📊 雀神全方位監控系統")
 
     # --- 1. Compact Prediction Tiles ---
     # We use columns to keep things side-by-side even on some larger phones
