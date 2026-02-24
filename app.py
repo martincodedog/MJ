@@ -12,7 +12,7 @@ st.set_page_config(page_title="HK Mahjong Master", page_icon="🀄", layout="wid
 SHEET_URL = "https://docs.google.com/spreadsheets/d/12rjgnWh2gMQ05TsFR6aCCn7QXB6rpa-Ylb0ma4Cs3E4/edit"
 PLAYERS = ["Martin", "Lok", "Stephen", "Fongka"]
 # 請確認你的分頁名稱，預設通常是 "Sheet1" 或 "工作表1"
-WORKSHEET_NAME = "Sheet1" 
+WORKSHEET_NAME = "工作表1" 
 
 # 建立連線 (會自動抓取 Secrets 中的憑證)
 conn = st.connection("gsheets", type=GSheetsConnection)
