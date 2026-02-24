@@ -8,39 +8,45 @@ def show_calculator(players):
     st.markdown("<h2 style='text-align: center;'>🧮 快速計分</h2>", unsafe_allow_html=True)
     conn = st.connection("gsheets", type=GSheetsConnection)
     
-    # --- 1. 最後一局紀錄與今日戰況 ---
-    today_tab_name = datetime.now().strftime("%Y-%m-%d")
+    # --- 1. 最後一局紀錄 (只顯示今日) ---
+    today_str = datetime.now().strftime("%Y-%m-%d")
     
     try:
-        # 同時讀取 Master Record 確保數據一致性
+        # 讀取 Master Record
         df_master = conn.read(spreadsheet=SHEET_URL, worksheet="Master Record", ttl=0)
         
         if not df_master.empty:
+            # 攞最後一行數據
             last_record = df_master.iloc[-1]
+            last_date = last_record['Date'] # 假設格式係 "2026-02-24 16:00"
             
-            # --- iPhone 專用最後紀錄卡片 ---
-            with st.container():
-                st.markdown(f"""
-                <div style="background-color: #f0f2f6; padding: 15px; border-radius: 12px; border: 1px solid #dcdfe6; margin-bottom: 20px;">
-                    <p style="margin: 0; font-size: 12px; color: #666;">⏮️ 最後一局紀錄 ({last_record['Date'][-5:]})</p>
-                    <p style="margin: 5px 0; font-size: 14px; font-weight: bold;">{last_record['Remark']}</p>
-                    <div style="display: flex; justify-content: space-between; font-family: monospace; font-size: 13px;">
-                        <span>M: {int(last_record['Martin']):+d}</span>
-                        <span>L: {int(last_record['Lok']):+d}</span>
-                        <span>S: {int(last_record['Stephen']):+d}</span>
-                        <span>F: {int(last_record['Fongka']):+d}</span>
+            # 檢查最後紀錄係咪今日發生
+            if today_str in last_date:
+                with st.container():
+                    st.markdown(f"""
+                    <div style="background-color: #f0f2f6; padding: 15px; border-radius: 12px; border: 1px solid #dcdfe6; margin-bottom: 20px;">
+                        <p style="margin: 0; font-size: 12px; color: #666;">⏮️ 今日最後一局 ({last_date[-5:]})</p>
+                        <p style="margin: 5px 0; font-size: 14px; font-weight: bold;">{last_record['Remark']}</p>
+                        <div style="display: flex; justify-content: space-between; font-family: monospace; font-size: 13px;">
+                            <span>M: {int(last_record['Martin']):+d}</span>
+                            <span>L: {int(last_record['Lok']):+d}</span>
+                            <span>S: {int(last_record['Stephen']):+d}</span>
+                            <span>F: {int(last_record['Fongka']):+d}</span>
+                        </div>
                     </div>
-                </div>
-                """, unsafe_allow_html=True)
-                
-                # 刪除最後一筆按鈕 (危險動作使用紅色)
-                if st.button("🗑️ 刪除最後一筆 (入錯數專用)", width='stretch'):
-                    new_master = df_master.drop(df_master.index[-1])
-                    conn.update(spreadsheet=SHEET_URL, worksheet="Master Record", data=new_master)
-                    st.warning("最後一筆紀錄已撤銷")
-                    st.rerun()
+                    """, unsafe_allow_html=True)
+                    
+                    if st.button("🗑️ 刪除今日最後一筆", width='stretch'):
+                        new_master = df_master.drop(df_master.index[-1])
+                        conn.update(spreadsheet=SHEET_URL, worksheet="Master Record", data=new_master)
+                        st.warning("最後一筆紀錄已撤銷")
+                        st.rerun()
+            else:
+                # 如果唔係今日，可以顯示一個簡單提示或者乾脆空白
+                st.caption("ℹ️ 今日暫時未有對局紀錄")
     except Exception as e:
-        st.info("尚未有對局紀錄")
+        # 預防萬一讀取失敗
+        pass
 
     st.divider()
 
