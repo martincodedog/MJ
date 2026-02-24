@@ -1,12 +1,10 @@
 import streamlit as st
 from datetime import datetime
-from utils import save_to_csv, get_base_money
-import pandas as pd
+from utils import save_to_gsheet, get_base_money
 
-def show_calculator_csv(players):
-    st.markdown("### 🧮 錄入對局 (CSV Mode)")
+def show_calculator(players):
+    st.markdown("### 🧮 錄入對局 (雲端同步)")
     
-    # Input Logic (Same as your optimized iPhone UI)
     winner = st.selectbox("🏆 贏家", players)
     mode = st.radio("🎲 方式", ["出統", "自摸", "包自摸"], horizontal=True)
     
@@ -18,7 +16,6 @@ def show_calculator_csv(players):
     fan = st.select_slider("🔥 翻數", options=list(range(3, 11)), value=3)
     base = get_base_money(fan)
 
-    # Calculation logic...
     res = {p: 0 for p in players}
     if mode == "出統":
         res[winner], res[loser] = base, -base
@@ -29,14 +26,15 @@ def show_calculator_csv(players):
         for p in players:
             if p != winner: res[p] = -base
 
-    # 在 views/calculator.py 錄入按鈕的部分
-    if st.button("🚀 紀錄並存檔", width='stretch', type="primary"):
+    if st.button("🚀 紀錄並同步到雲端", width='stretch', type="primary"):
         new_row = [
             datetime.now().strftime("%Y-%m-%d %H:%M"),
             res["Martin"], res["Lok"], res["Stephen"], res["Fongka"],
             f"{winner} {mode} {fan}番"
         ]
-        # 注意：這裡多傳入一個 players 參數
-        save_to_csv(new_row, players) 
-        st.success("數據已存入今日 CSV！")
+        
+        with st.spinner('同步中... 唔好閂埋個 App'):
+            save_to_gsheet(new_row)
+        
+        st.success("✅ 數據已寫入 Google Sheet！")
         st.rerun()
