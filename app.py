@@ -155,4 +155,38 @@ with tabs[1]:
         if not today_df.empty and any(p in today_df.columns for p in PLAYERS):
             final_sync_row = [
                 today_date_str, 
-                int(today_df["Martin"].sum()) if "Martin" in today_df.columns else 0,
+                int(today_df["Martin"].sum()) if "Martin" in today_df.columns else 0, 
+                int(today_df["Lok"].sum()) if "Lok" in today_df.columns else 0, 
+                int(today_df["Stephen"].sum()) if "Stephen" in today_df.columns else 0, 
+                int(today_df["Fongka"].sum()) if "Fongka" in today_df.columns else 0, 
+                f"Daily Total Sync ({sheet_tab_name})"
+            ]
+            ws_master = sh.worksheet(MASTER_SHEET)
+            ws_master.append_row(final_sync_row)
+            st.success("🎉 今日戰績已成功結算至總表！")
+            st.cache_data.clear()
+        else:
+            st.error("找不到今日數據，請先錄入。")
+
+# --- TAB 3: History Detail ---
+with tabs[2]:
+    st.header("📜 歷史紀錄明細 (Master Record)")
+    history_view = df_master.sort_values(by="Date", ascending=False).copy()
+    history_view['Date'] = history_view['Date'].dt.strftime('%Y/%m/%d')
+    st.dataframe(history_view, use_container_width=True, hide_index=True)
+    
+    st.subheader("📈 歷史累積走勢")
+    st.line_chart(df_master.set_index("Date")[PLAYERS].cumsum())
+
+# --- TAB 4: Prediction ---
+with tabs[3]:
+    st.header("🔮 下場表現預測")
+    p_cols = st.columns(4)
+    for i, p in enumerate(PLAYERS):
+        recent = df_master[p].tail(10).values
+        if len(recent) >= 3:
+            w = np.arange(1, len(recent) + 1)
+            pred = np.average(recent, weights=w)
+            p_cols[i].metric(f"{p} 預測得分", f"{pred:+.1f}")
+        else:
+            p_cols[i].write("需要至少 3 日數據。")
