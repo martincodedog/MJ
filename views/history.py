@@ -9,35 +9,36 @@ def show_history(df_master, players):
         return
 
     # --- 1. 年度總結 (Yearly Summary) ---
-    st.subheader("📅 年度戰績總計")
+    st.subheader("📅 年度戰績總結 (年度最強)")
     
     df_yearly = df_master.copy()
     df_yearly['Year'] = df_yearly['Date'].dt.year
     
-    # 算出年度總計數字
+    # 算出年度總計數字與對局天數
     yearly_summary = df_yearly.groupby('Year')[players].sum().sort_index(ascending=False)
+    yearly_days = df_yearly.groupby('Year')['Date'].count()
     
-    # 定義 Emoji 邏輯：每行最高分加 👑，最低分加 💸
-    def add_summary_emojis(row):
-        # 找出最大值和最小值的索引
+    # 定義格式化邏輯：每行最高分（Winner）在數字後加 👑
+    def add_winner_emoji_after(row):
+        # 找出最大值的玩家名
         max_idx = row.idxmax()
-        min_idx = row.idxmin()
         
-        # 轉換為字串並加入格式
+        # 轉換為字串格式
         formatted = row.apply(lambda x: f"${x:,.0f}")
         
-        # 如果有正分才加皇冠，有負分才加錢包 (避免大家平手時亂加)
+        # 只有當最高分大於 0 時，在數字後加皇冠
         if row[max_idx] > 0:
-            formatted[max_idx] = f"👑 {formatted[max_idx]}"
-        if row[min_idx] < 0:
-            formatted[min_idx] = f"💸 {formatted[min_idx]}"
+            formatted[max_idx] = f"{formatted[max_idx]} 👑"
             
         return formatted
 
     # 應用格式化
-    display_yearly = yearly_summary.apply(add_summary_emojis, axis=1)
+    display_yearly = yearly_summary.apply(add_winner_emoji_after, axis=1)
 
-    # 顯示年度表格 (使用 st.table 確保 Emoji 完整顯示)
+    # 在表格中加入對局天數資訊
+    display_yearly['對局天數'] = yearly_days.values
+
+    # 顯示年度表格
     st.table(display_yearly)
 
     st.divider()
@@ -56,7 +57,7 @@ def show_history(df_master, players):
         }
     )
 
-    # --- 3. 最近備註 ---
+    # --- 3. 最近備註 (如有 Remark 欄位) ---
     if 'Remark' in df_master.columns:
         st.divider()
         st.subheader("💬 最近對局摘要")
