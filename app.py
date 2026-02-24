@@ -1,124 +1,93 @@
 import streamlit as st
 import pandas as pd
-import numpy as np
+import gspread
+from google.oauth2.service_account import Credentials
 from streamlit_gsheets import GSheetsConnection
 from datetime import datetime
 
 # --- 1. 頁面配置 ---
 st.set_page_config(page_title="HK Mahjong Master", page_icon="🀄", layout="wide")
 
-# --- 2. 參數與連線 ---
-SHEET_URL = "https://docs.google.com/spreadsheets/d/12rjgnWh2gMQ05TsFR6aCCn7QXB6rpa-Ylb0ma4Cs3E4/edit"
-PLAYERS = ["Martin", "Lok", "Stephen", "Fongka"]
-# --- 已更新工作表名稱 ---
-WORKSHEET_NAME = "Master Record" 
+# --- 2. 認證與連線 ---
+# 從 Streamlit Secrets 讀取憑證 (用於 gspread 開新 Tab)
+creds_dict = st.secrets["connections"]["gsheets"]
+scope = ["https://www.googleapis.com/auth/spreadsheets", "https://www.googleapis.com/auth/drive"]
+creds = Credentials.from_service_account_info(creds_dict, scopes=scope)
+client = gspread.authorize(creds)
 
+# 檔案資訊
+SHEET_ID = "12rjgnWh2gMQ05TsFR6aCCn7QXB6rpa-Ylb0ma4Cs3E4"
+SHEET_URL = f"https://docs.google.com/spreadsheets/d/{SHEET_ID}/edit"
+MASTER_SHEET = "Master Record"
+PLAYERS = ["Martin", "Lok", "Stephen", "Fongka"]
+
+# Streamlit 原生連線 (用於快速讀取)
 conn = st.connection("gsheets", type=GSheetsConnection)
 
-# --- 3. 計錢邏輯 Function ---
+# --- 3. 功能函式 ---
 def get_base_money(fan):
-    # 你的計分規則: 3=4, 4=16, 5=48, 6=64, 7=96, 8=128, 9=192, 10=256
-    fan_map = {
-        3: 4, 4: 16, 5: 48, 6: 64, 
-        7: 96, 8: 128, 9: 192, 10: 256
-    }
-    if fan > 10: return 256
-    return fan_map.get(fan, 0)
+    fan_map = {3: 4, 4: 16, 5: 48, 6: 64, 7: 96, 8: 128, 9: 192, 10: 256}
+    return fan_map.get(fan, 256 if fan > 10 else 0)
 
-@st.cache_data(ttl=10)
-def load_data():
+def get_or_create_worksheet(sheet_name):
+    sh = client.open_by_key(SHEET_ID)
     try:
-        # 讀取 Master Record
-        df = conn.read(spreadsheet=SHEET_URL, worksheet=WORKSHEET_NAME)
-        df = df.dropna(how='all')
-        
-        # 識別日期欄位
-        date_col = 'Date' if 'Date' in df.columns else df.columns[0]
-        df[date_col] = pd.to_datetime(df[date_col])
-        
-        # 確保分數欄位是數字
-        for p in PLAYERS:
-            if p in df.columns:
-                df[p] = pd.to_numeric(df[p], errors='coerce').fillna(0)
-        return df, date_col
-    except Exception as e:
-        st.error(f"讀取失敗：請檢查 Google Sheet 分頁名稱是否為 '{WORKSHEET_NAME}'")
-        st.stop()
+        return sh.worksheet(sheet_name)
+    except gspread.exceptions.WorksheetNotFound:
+        # 如果找不到，就開一個新 Tab
+        new_ws = sh.add_worksheet(title=sheet_name, rows="100", cols="10")
+        # 初始化標題
+        new_ws.append_row(["Date", "Martin", "Lok", "Stephen", "Fongka", "Remark"])
+        return new_ws
 
-# --- 4. 主程式介面 ---
-df, date_col = load_data()
+# --- 4. 主介面 ---
+tab_dashboard, tab_calculator = st.tabs(["📊 總體數據", "🧮 每日錄入 (自動開表)"])
 
-# 使用 Tabs 將功能分開
-tab_dashboard, tab_calculator = st.tabs(["📊 數據總結 (Dashboard)", "🧮 自動計錢入賬 (Calculator)"])
-
-# --- TAB 1: 數據總結 ---
+# --- TAB 1: Dashboard ---
 with tab_dashboard:
-    st.header("累積戰績總覽")
-    
-    # 總分卡片
+    df = conn.read(spreadsheet=SHEET_URL, worksheet=MASTER_SHEET).dropna(how='all')
+    st.header("累積戰績 (Master Record)")
     m_cols = st.columns(4)
     for i, p in enumerate(PLAYERS):
-        total_score = df[p].sum()
-        m_cols[i].metric(label=p, value=f"${total_score:,.0f}")
-
+        m_cols[i].metric(label=p, value=f"${pd.to_numeric(df[p]).sum():,.0f}")
     st.divider()
-    
-    # 年度排行榜
-    st.subheader("🗓️ 年度排行榜")
-    df['Year'] = df[date_col].dt.year
-    yearly_df = df.groupby('Year')[PLAYERS].sum().reset_index()
-    
-    def add_trophy(row):
-        scores = row[PLAYERS].astype(float)
-        winner = scores.idxmax()
-        formatted = row.astype(str)
-        formatted[winner] = f"🏆 {row[winner]:,.0f}"
-        return formatted
+    st.line_chart(df.set_index("Date")[PLAYERS].apply(pd.to_numeric).cumsum())
 
-    if not yearly_df.empty:
-        st.table(yearly_df.apply(add_trophy, axis=1))
-
-    # 累積走勢圖
-    st.subheader("📈 累積走勢")
-    trend_data = df.groupby(date_col)[PLAYERS].sum().cumsum()
-    st.line_chart(trend_data)
-
-# --- TAB 2: 自動計錢入賬 ---
+# --- TAB 2: Calculator ---
 with tab_calculator:
-    st.header("🧮 即時計分錄入")
-    st.caption(f"數據將寫入分頁: {WORKSHEET_NAME}")
-    
-    with st.form("mahjong_calc_form", clear_on_submit=True):
-        f_date = st.date_input("比賽日期", datetime.now())
-        
-        col_input, col_preview = st.columns([2, 1])
-        
-        with col_input:
-            winner = st.selectbox("贏家 (Winner)", PLAYERS)
-            mode = st.radio("食糊方式", ["出統 (食客付)", "自摸 (三家付)", "包自摸 (一人包)"], horizontal=True)
-            
-            if mode == "出統 (食客付)":
-                loser = st.selectbox("誰出沖？", [p for p in PLAYERS if p != winner])
-            elif mode == "包自摸 (一人包)":
-                loser = st.selectbox("誰包自摸？", [p for p in PLAYERS if p != winner])
-            else:
-                loser = "三家"
-                
-            fan = st.number_input("幾多番？", min_value=3, max_value=13, value=3)
-            base_money = get_base_money(fan)
+    today_str = datetime.now().strftime("%Y-%m-%d")
+    st.header(f"今日對局錄入: {today_str}")
 
+    with st.form("calc_form", clear_on_submit=True):
+        col_input, col_preview = st.columns([2, 1])
+        with col_input:
+            winner = st.selectbox("贏家", PLAYERS)
+            mode = st.radio("食糊方式", ["出統", "自摸", "包自摸"], horizontal=True)
+            loser = st.selectbox("輸家/包家", [p for p in PLAYERS if p != winner]) if mode != "自摸" else "三家"
+            fan = st.number_input("翻數", min_value=3, max_value=13, value=3)
+            base_money = get_base_money(fan)
+        
         with col_preview:
-            st.write("##### 💰 預計損益預覽")
-            # 損益計算邏輯
-            calc_result = {p: 0 for p in PLAYERS}
-            if mode == "出統 (食客付)":
-                calc_result[winner] = base_money
-                calc_result[loser] = -base_money
-            elif mode == "包自摸 (一人包)":
-                calc_result[winner] = base_money * 3
-                calc_result[loser] = -(base_money * 3)
-            else: # 自摸
-                calc_result[winner] = base_money * 3
-                for p in PLAYERS:
-                    if p != winner:
-                        calc_result
+            st.write("##### 💰 本局損益預覽")
+            res = {p: 0 for p in PLAYERS}
+            if mode == "出統": res[winner], res[loser] = base_money, -base_money
+            elif mode == "包自摸": res[winner], res[loser] = base_money * 3, -(base_money * 3)
+            else: 
+                res[winner] = base_money * 3
+                for p in PLAYERS: 
+                    if p != winner: res[p] = -base_money
+            for p, v in res.items():
+                st.write(f"{p}: {'🟢' if v >=0 else '🔴'} ${v}")
+
+        if st.form_submit_button("✅ 提交並同步 (自動開新 Tab)"):
+            # 1. 寫入每日 Tab (自動創建)
+            ws_today = get_or_create_worksheet(today_str)
+            new_row = [datetime.now().strftime("%Y-%m-%d %H:%M"), res["Martin"], res["Lok"], res["Stephen"], res["Fongka"], f"{winner} {mode} {fan}番"]
+            ws_today.append_row(new_row)
+            
+            # 2. 同步寫入 Master Record
+            ws_master = client.open_by_key(SHEET_ID).worksheet(MASTER_SHEET)
+            ws_master.append_row(new_row)
+            
+            st.success(f"成功！已在 Google Sheet 開啟/更新分頁: {today_str}")
+            st.balloons()
