@@ -8,37 +8,33 @@ def show_calculator(players):
     st.markdown("<h2 style='text-align: center;'>🧮 快速計分</h2>", unsafe_allow_html=True)
     conn = st.connection("gsheets", type=GSheetsConnection)
     
-    # 獲取今日日期字串
     today_str = datetime.now().strftime("%Y-%m-%d")
 
     try:
-        # 讀取 Master Record
         df_master = conn.read(spreadsheet=SHEET_URL, worksheet="Master Record", ttl=0)
         
         if not df_master.empty:
-            # --- 1. 新增：今日 Summary 區域 ---
-            # 篩選今日數據 (確保 Date 欄位包含今日日期)
+            # --- 1. 今日 Summary (顯示全名) ---
             df_today = df_master[df_master['Date'].str.contains(today_str, na=False)]
             
             if not df_today.empty:
-                # 計算今日各人總分
                 today_sums = df_today[players].sum()
                 
                 st.markdown("#### 📅 今日累計")
-                # iPhone 專用橫向小卡片 Summary
                 cols = st.columns(4)
                 for i, p in enumerate(players):
                     val = today_sums[p]
                     color = "#1e8e3e" if val > 0 else "#d93025" if val < 0 else "#5f6368"
+                    # 調整字體大小確保全名不換行
                     cols[i].markdown(f"""
-                        <div style="text-align:center; background-color:#f8f9fa; padding:5px; border-radius:8px; border-bottom:3px solid {color};">
-                            <p style="margin:0; font-size:11px; color:#666;">{p[0]}</p>
-                            <p style="margin:0; font-size:15px; font-weight:bold; color:{color};">{int(val):+d}</p>
+                        <div style="text-align:center; background-color:#f8f9fa; padding:5px 2px; border-radius:8px; border-bottom:3px solid {color};">
+                            <p style="margin:0; font-size:10px; color:#666; white-space:nowrap; overflow:hidden;">{p}</p>
+                            <p style="margin:0; font-size:14px; font-weight:bold; color:{color};">{int(val):+d}</p>
                         </div>
                     """, unsafe_allow_html=True)
-                st.write("") # 留白
+                st.write("") 
             
-            # --- 2. 原有的最後一局紀錄 (僅今日) ---
+            # --- 2. 最後一局紀錄 ---
             last_record = df_master.iloc[-1]
             if today_str in last_record['Date']:
                 with st.expander("⏮️ 查看上一局明細", expanded=False):
@@ -57,7 +53,7 @@ def show_calculator(players):
                         st.rerun()
 
     except Exception as e:
-        st.caption("暫無今日紀錄")
+        pass
 
     st.divider()
 
@@ -84,7 +80,7 @@ def show_calculator(players):
         for p in players:
             if p != winner: res[p] = -base
 
-    # --- 4. 變動預覽 UI (之前優化過嘅部分) ---
+    # --- 4. 變動預覽 (全名顯示版) ---
     st.markdown("#### ⚡ 變動預覽")
     p_cols = st.columns(4)
     for i, p in enumerate(players):
@@ -93,9 +89,9 @@ def show_calculator(players):
         txt = "#1e8e3e" if val > 0 else "#d93025" if val < 0 else "#5f6368"
         with p_cols[i]:
             st.markdown(f"""
-                <div style="background-color:{bg}; border-radius:10px; padding:8px 5px; text-align:center;">
-                    <p style="margin:0; font-size:12px; font-weight:bold;">{p[0]}</p>
-                    <p style="margin:0; font-size:16px; font-weight:900; color:{txt};">{val:+d}</p>
+                <div style="background-color:{bg}; border-radius:10px; padding:8px 2px; text-align:center; min-height:55px; display:flex; flex-direction:column; justify-content:center;">
+                    <p style="margin:0; font-size:10px; font-weight:bold; color:#333; line-height:1.1;">{p}</p>
+                    <p style="margin:2px 0 0 0; font-size:15px; font-weight:900; color:{txt};">{val:+d}</p>
                 </div>
             """, unsafe_allow_html=True)
 
