@@ -6,10 +6,10 @@ from google.oauth2.service_account import Credentials
 from streamlit_gsheets import GSheetsConnection
 from datetime import datetime
 
-# --- 1. Page Configuration ---
+# --- 1. 頁面配置 ---
 st.set_page_config(page_title="HK Mahjong Master Pro", page_icon="🀄", layout="wide")
 
-# --- 2. Credentials & Connection ---
+# --- 2. 認證與連線 ---
 creds_dict = st.secrets["connections"]["gsheets"]
 scope = ["https://www.googleapis.com/auth/spreadsheets", "https://www.googleapis.com/auth/drive"]
 creds = Credentials.from_service_account_info(creds_dict, scopes=scope)
@@ -22,7 +22,7 @@ PLAYERS = ["Martin", "Lok", "Stephen", "Fongka"]
 
 conn = st.connection("gsheets", type=GSheetsConnection)
 
-# --- 3. Functions ---
+# --- 3. 核心功能 ---
 def get_base_money(fan):
     fan_map = {3: 8, 4: 16, 5: 48, 6: 64, 7: 96, 8: 128, 9: 192, 10: 256}
     return fan_map.get(fan, 256 if fan > 10 else 0)
@@ -44,12 +44,12 @@ def load_master_data():
         df[p] = pd.to_numeric(df[p], errors='coerce').fillna(0)
     return df
 
-# --- 4. Modern Sidebar Navigation (No Radio Buttons) ---
+# --- 4. Sidebar 導航 ---
 if 'page' not in st.session_state:
-    st.session_state.page = "快速計分"  # Default landing page
+    st.session_state.page = "快速計分"
 
 with st.sidebar:
-    st.title("🀄 HK Mahjong Master")
+    st.title("🀄 HK Mahjong")
     st.markdown("---")
     if st.button("📊 總體概況", use_container_width=True):
         st.session_state.page = "總體概況"
@@ -58,17 +58,14 @@ with st.sidebar:
     if st.button("📜 歷史紀錄", use_container_width=True):
         st.session_state.page = "歷史紀錄"
     st.markdown("---")
-    st.caption(f"Last sync: {datetime.now().strftime('%H:%M:%S')}")
 
-# Load Master Data
 df_master = load_master_data()
 
-# --- 5. Page Routing ---
+# --- 5. 頁面內容 ---
 
-# --- PAGE: 總體概況 ---
+# --- 頁面 1: 總體概況 ---
 if st.session_state.page == "總體概況":
     st.header("📊 總結算 & 下場預測")
-    
     m_cols = st.columns(4)
     for i, p in enumerate(PLAYERS):
         total = df_master[p].sum()
@@ -84,21 +81,7 @@ if st.session_state.page == "總體概況":
     st.subheader("📈 累積走勢圖")
     st.line_chart(df_master.set_index("Date")[PLAYERS].cumsum())
 
-    st.divider()
-    st.subheader("📋 表現分析")
-    summary_list = []
-    for p in PLAYERS:
-        scores = df_master[p]
-        wins = (scores > 0).sum()
-        summary_list.append({
-            "玩家": p,
-            "勝率 (%)": f"{(wins/len(scores)*100):.1f}%" if len(scores) > 0 else "0%",
-            "場均得分": f"{scores.mean():.1f}",
-            "生涯最高": f"${scores.max():,.0f}"
-        })
-    st.table(pd.DataFrame(summary_list).set_index("玩家"))
-
-# --- PAGE: 快速計分 ---
+# --- 頁面 2: 快速計分 ---
 elif st.session_state.page == "快速計分":
     today_date_str = datetime.now().strftime("%Y/%m/%d")
     sheet_tab_name = today_date_str.replace("/", "-")
@@ -112,17 +95,19 @@ elif st.session_state.page == "快速計分":
     except:
         today_df = pd.DataFrame(columns=["Date"] + PLAYERS + ["Remark"])
 
-    st.markdown(f"### 🏆 今日即時累積")
-    cols = st.columns(4)
+    # --- 改進：使用 Metric 讓數字更大更醒目 ---
+    st.markdown("### 🏆 今日即時累積")
+    m_cols = st.columns(4)
     for i, p in enumerate(PLAYERS):
-        cols[i].markdown(f"**{p}**: `${today_df[p].sum():,.0f}`")
+        day_val = today_df[p].sum() if p in today_df.columns else 0
+        m_cols[i].metric(label=p, value=f"${day_val:,.0f}")
 
     st.divider()
     col_in, col_pre = st.columns([1, 1])
     with col_in:
         st.markdown("#### 📝 錄入數據")
         winner = st.selectbox("贏家", PLAYERS)
-        mode = st.radio("食糊方式", ["出統", "自摸", "包自摸"], horizontal=True)
+        mode = st.radio("方式", ["出統", "自摸", "包自摸"], horizontal=True)
         loser = st.selectbox("誰付錢？", [p for p in PLAYERS if p != winner]) if mode != "自摸" else "三家"
         fan = st.select_slider("翻數", options=list(range(3, 11)), value=3)
         base = get_base_money(fan)
@@ -156,12 +141,7 @@ elif st.session_state.page == "快速計分":
             for row in all_data[1:]:
                 if row[0] != today_date_str: rows_to_keep.append(row)
             
-            summary_row = [
-                today_date_str, 
-                int(today_df["Martin"].sum()), int(today_df["Lok"].sum()), 
-                int(today_df["Stephen"].sum()), int(today_df["Fongka"].sum()), 
-                f"Auto-Sync: {sheet_tab_name}"
-            ]
+            summary_row = [today_date_str, int(today_df["Martin"].sum()), int(today_df["Lok"].sum()), int(today_df["Stephen"].sum()), int(today_df["Fongka"].sum()), f"Sync: {sheet_tab_name}"]
             rows_to_keep.append(summary_row)
             ws_master.clear()
             ws_master.update('A1', rows_to_keep)
@@ -170,7 +150,11 @@ elif st.session_state.page == "快速計分":
         else:
             st.error("今日暫無數據。")
 
-# --- PAGE: 歷史紀錄 ---
+# --- 頁面 3: 歷史紀錄 ---
 elif st.session_state.page == "歷史紀錄":
-    st.header("📜 歷史紀錄 (Martin / Lok / Stephen / Fongka)")
-    st.dataframe(df_master[PLAYERS].sort_index(ascending=False), use_container_width=True)
+    st.header("📜 歷史紀錄")
+    # --- 改進：將 Date 設為 Index 並隱藏序號 ---
+    history_display = df_master.set_index("Date")[PLAYERS].sort_index(ascending=False)
+    # 格式化日期顯示
+    history_display.index = history_display.index.strftime('%Y/%m/%d')
+    st.dataframe(history_display, use_container_width=True)
