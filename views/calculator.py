@@ -29,13 +29,14 @@ def show_calculator_csv(players):
         for p in players:
             if p != winner: res[p] = -base
 
+    # 在 views/calculator.py 錄入按鈕的部分
     if st.button("🚀 紀錄並存檔", use_container_width=True, type="primary"):
-        # Format for CSV: [Date, Martin, Lok, Stephen, Fongka, Remark]
         new_row = [
             datetime.now().strftime("%Y-%m-%d %H:%M"),
             res["Martin"], res["Lok"], res["Stephen"], res["Fongka"],
             f"{winner} {mode} {fan}番"
         ]
-        save_to_csv(new_row)
-        st.success("數據已存入 CSV！")
+        # 注意：這裡多傳入一個 players 參數
+        save_to_csv(new_row, players) 
+        st.success("數據已存入今日 CSV！")
         st.rerun()
