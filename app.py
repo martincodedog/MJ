@@ -12,7 +12,7 @@ conn = st.connection("gsheets", type=GSheetsConnection)
 
 # 定義玩家名單
 PLAYERS = ["Martin", "Lok", "Stephen", "Fongka"]
-SHEET_URL = "https://docs.google.com/spreadsheets/d/14yklDMWbghTp47Gl9jFkKyO3CFy6x_el/edit"
+SHEET_URL = "https://docs.google.com/spreadsheets/d/12rjgnWh2gMQ05TsFR6aCCn7QXB6rpa-Ylb0ma4Cs3E4/edit?gid=2131114078#gid=2131114078"
 
 @st.cache_data(ttl=60)
 def load_data():
