@@ -17,24 +17,23 @@ def calculate_max_streak(data):
 def show_dashboard(df_master, players):
     st.title("📊 雀神進階數據分析")
 
-    # --- 1. 預測與區間分析 (Prediction & Range) ---
+    # --- 1. 預測與區間分析 ---
     st.subheader("🔮 戰力預測與手感分析")
     m_cols = st.columns(4)
 
     for i, p in enumerate(players):
         data = df_master[p].values
         if len(data) >= 3:
-            # A. 預測值：使用加權移動平均 (越近期的對局權重越高)
+            # A. 加權移動平均 (WMA)
             weights = np.arange(1, len(data) + 1)
             prediction = np.average(data, weights=weights)
             
-            # B. 波動範圍：使用標準差 (Standard Deviation)
-            # 範圍設定為 預測值 ± (0.5 * 標準差)，代表約 40% 的機率落在該區間
+            # B. 波動標準差 (Sigma)
             std_dev = np.std(data)
             lower_bound = prediction - (std_dev * 0.5)
             upper_bound = prediction + (std_dev * 0.5)
             
-            # C. Z-Score 狀態判斷 (衡量最後一場對局是否偏離常態)
+            # C. Z-Score 狀態
             last_score = data[-1]
             avg_score = np.mean(data)
             z_score = (last_score - avg_score) / std_dev if std_dev > 0 else 0
@@ -51,14 +50,23 @@ def show_dashboard(df_master, players):
         else:
             m_cols[i].write(f"{p}: 數據不足")
 
+    # --- 預測方法備註 ---
+    with st.expander("ℹ️ 預測模型說明 (Prediction Methodology)"):
+        st.write("""
+        本系統採用以下統計模型進行分析：
+        1. **加權預測 (WMA)**：並非簡單平均，而是給予**近期對局**更高的權重，反映玩家最近的手感趨勢。
+        2. **預估範圍 ($\sigma$)**：基於歷史波動率。範圍越寬，代表該玩家打法較「大出大進」；範圍越窄，代表打法趨於穩健。
+        3. **狀態判斷 (Z-Score)**：衡量最後一場表現與長期平均值的離散程度，用以判斷玩家是否處於「連旺」或「連衰」的統計臨界點。
+        """)
+
     st.divider()
 
-    # --- 2. 累計與單日走勢圖 ---
-    st.subheader("📈 戰鬥力走勢 (累積損益)")
+    # --- 2. 累計走勢圖 ---
+    st.subheader("📈 歷史戰鬥力走勢 (累積損益)")
     cumulative_df = df_master.set_index("Date")[players].cumsum()
     st.line_chart(cumulative_df)
 
-    # --- 3. 專業統計 KPI (表格) ---
+    # --- 3. 專業統計 KPI ---
     st.divider()
     st.subheader("📋 深度統計指標 (Deep Analytics)")
     
@@ -67,9 +75,6 @@ def show_dashboard(df_master, players):
         p_data = df_master[p]
         win_days = (p_data > 0).sum()
         total_days = len(p_data)
-        
-        # 穩定係數 (Sharpe Ratio 簡化版)：平均回報 / 風險波動
-        # 越高代表贏得越穩，低代表大起大落
         stability = (p_data.mean() / p_data.std()) if p_data.std() > 0 else 0
         
         stats_list.append({
@@ -81,10 +86,4 @@ def show_dashboard(df_master, players):
             "期望值 (EV)": f"${p_data.mean():.1f}"
         })
     
-    # 顯示統計表
     st.table(pd.DataFrame(stats_list).set_index("玩家"))
-
-    # --- 4. 單日損益分佈 (Area Chart) ---
-    st.divider()
-    st.subheader("🌊 單日損益波動")
-    st.area_chart(df_master.set_index("Date")[players])
