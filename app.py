@@ -24,7 +24,6 @@ conn = st.connection("gsheets", type=GSheetsConnection)
 
 # --- 3. 核心功能函式 ---
 def get_base_money(fan):
-    # 3番=$8, 4番=$16, 5番=$48...
     fan_map = {3: 8, 4: 16, 5: 48, 6: 64, 7: 96, 8: 128, 9: 192, 10: 256}
     return fan_map.get(fan, 256 if fan > 10 else 0)
 
@@ -45,17 +44,23 @@ def load_master_data():
         df[p] = pd.to_numeric(df[p], errors='coerce').fillna(0)
     return df
 
-# --- 4. 數據加載 ---
+# --- 4. 側邊欄導覽 (解決跳轉問題的核心) ---
+st.sidebar.title("🀄 雀神導航")
+menu = st.sidebar.radio(
+    "選擇功能", 
+    ["📊 總體概況", "🧮 快速計分", "📜 歷史紀錄"],
+    index=1 # 預設停留在計分頁面，方便連續錄入
+)
+
+# 數據預加載
 df_master = load_master_data()
 
-# --- 5. 介面 Tabs ---
-tabs = st.tabs(["📊 總體概況", "🧮 快速計分", "📜 歷史紀錄"])
+# --- 5. 分頁邏輯 ---
 
-# --- TAB 1: 總體概況 (含預測 & 累積走勢) ---
-with tabs[0]:
+# --- 頁面 1: 總體概況 ---
+if menu == "📊 總體概況":
     st.header("💰 雀神總結算 & 下場預測")
     
-    # A. 頂部指標與預測
     m_cols = st.columns(4)
     for i, p in enumerate(PLAYERS):
         total = df_master[p].sum()
@@ -65,18 +70,13 @@ with tabs[0]:
             w = np.arange(1, len(recent) + 1)
             pred = np.average(recent, weights=w)
             pred_text = f"{pred:+.1f}"
-        
         m_cols[i].metric(label=f"{p} 總分", value=f"${total:,.0f}", delta=f"下場預測: {pred_text}")
 
     st.divider()
-
-    # B. 歷史累積走勢圖 (從舊 Tab 移至此處)
-    st.subheader("📈 累積走勢圖 (Cumulative Trend)")
+    st.subheader("📈 累積走勢圖")
     st.line_chart(df_master.set_index("Date")[PLAYERS].cumsum())
 
     st.divider()
-
-    # C. 玩家深度數據分析
     st.subheader("📊 玩家表現摘要")
     summary_list = []
     for p in PLAYERS:
@@ -91,13 +91,12 @@ with tabs[0]:
         })
     st.table(pd.DataFrame(summary_list).set_index("玩家"))
 
-# --- TAB 2: 快速計分 (Markdown 預覽 & 覆寫結算) ---
-with tabs[1]:
+# --- 頁面 2: 快速計分 ---
+elif menu == "🧮 快速計分":
     today_date_str = datetime.now().strftime("%Y/%m/%d")
     sheet_tab_name = today_date_str.replace("/", "-")
     st.header(f"🧮 今日計分: {today_date_str}")
 
-    # 讀取今日數據
     try:
         sh = client.open_by_key(SHEET_ID)
         ws_today = sh.worksheet(sheet_tab_name)
@@ -106,14 +105,10 @@ with tabs[1]:
     except:
         today_df = pd.DataFrame(columns=["Date"] + PLAYERS + ["Remark"])
 
-    # 今日累積戰報
     st.markdown("### 🏆 今日即時累計")
-    score_display = " | ".join([f"**{p}**: `${today_df[p].sum():,.0f}`" for p in PLAYERS])
-    st.markdown(score_display)
+    st.markdown(" | ".join([f"**{p}**: `${today_df[p].sum():,.0f}`" for p in PLAYERS]))
 
     st.divider()
-
-    # 本局錄入
     with st.container():
         col_in, col_pre = st.columns([1, 1])
         with col_in:
@@ -144,42 +139,31 @@ with tabs[1]:
             st.success("✅ 已錄入")
             st.rerun()
 
-    # 結算按鈕 (含自動覆寫邏輯)
     st.divider()
     st.markdown("### 🏁 完場結算")
     if st.button("📤 同步並覆寫至 Master Record", type="primary", use_container_width=True):
         if not today_df.empty:
             ws_master = sh.worksheet(MASTER_SHEET)
             all_data = ws_master.get_all_values()
-            
-            # 覆寫邏輯：過濾掉同日期的舊數據
-            rows_to_keep = [all_data[0]] # 保留標題
+            rows_to_keep = [all_data[0]]
             for row in all_data[1:]:
-                if row[0] != today_date_str:
-                    rows_to_keep.append(row)
+                if row[0] != today_date_str: rows_to_keep.append(row)
             
-            # 加入最新今日總分
             summary_row = [
                 today_date_str, 
-                int(today_df["Martin"].sum()), 
-                int(today_df["Lok"].sum()), 
-                int(today_df["Stephen"].sum()), 
-                int(today_df["Fongka"].sum()), 
+                int(today_df["Martin"].sum()), int(today_df["Lok"].sum()), 
+                int(today_df["Stephen"].sum()), int(today_df["Fongka"].sum()), 
                 f"Auto-Sync: {sheet_tab_name}"
             ]
             rows_to_keep.append(summary_row)
-            
-            # 更新整個 Master Sheet
             ws_master.clear()
             ws_master.update('A1', rows_to_keep)
-            
-            st.success(f"🎊 {today_date_str} 的總結紀錄已更新 (已覆寫舊檔)")
+            st.success(f"🎊 {today_date_str} 紀錄更新成功")
             st.cache_data.clear()
         else:
             st.error("今日無數據可結算。")
 
-# --- TAB 3: 歷史紀錄 (精簡顯示) ---
-with tabs[2]:
-    st.header("📜 歷史得分紀錄")
-    # 僅顯示玩家列
+# --- 頁面 3: 歷史紀錄 ---
+elif menu == "📜 歷史紀錄":
+    st.header("📜 歷史得分紀錄 (Master Record)")
     st.dataframe(df_master[PLAYERS].sort_index(ascending=False), use_container_width=True)
