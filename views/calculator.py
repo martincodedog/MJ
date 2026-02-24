@@ -30,7 +30,7 @@ def show_calculator_csv(players):
             if p != winner: res[p] = -base
 
     # 在 views/calculator.py 錄入按鈕的部分
-    if st.button("🚀 紀錄並存檔", use_container_width=True, type="primary"):
+    if st.button("🚀 紀錄並存檔", width='stretch', type="primary"):
         new_row = [
             datetime.now().strftime("%Y-%m-%d %H:%M"),
             res["Martin"], res["Lok"], res["Stephen"], res["Fongka"],
