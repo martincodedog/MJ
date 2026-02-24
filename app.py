@@ -6,10 +6,10 @@ from google.oauth2.service_account import Credentials
 from streamlit_gsheets import GSheetsConnection
 from datetime import datetime
 
-# --- 1. 頁面配置 ---
+# --- 1. Page Configuration ---
 st.set_page_config(page_title="HK Mahjong Master Pro", page_icon="🀄", layout="wide")
 
-# --- 2. 認證與連線 ---
+# --- 2. Credentials & Connection ---
 creds_dict = st.secrets["connections"]["gsheets"]
 scope = ["https://www.googleapis.com/auth/spreadsheets", "https://www.googleapis.com/auth/drive"]
 creds = Credentials.from_service_account_info(creds_dict, scopes=scope)
@@ -22,7 +22,7 @@ PLAYERS = ["Martin", "Lok", "Stephen", "Fongka"]
 
 conn = st.connection("gsheets", type=GSheetsConnection)
 
-# --- 3. 核心功能函式 ---
+# --- 3. Functions ---
 def get_base_money(fan):
     fan_map = {3: 8, 4: 16, 5: 48, 6: 64, 7: 96, 8: 128, 9: 192, 10: 256}
     return fan_map.get(fan, 256 if fan > 10 else 0)
@@ -44,22 +44,30 @@ def load_master_data():
         df[p] = pd.to_numeric(df[p], errors='coerce').fillna(0)
     return df
 
-# --- 4. 側邊欄導覽 (解決跳轉問題的核心) ---
-st.sidebar.title("🀄 雀神導航")
-menu = st.sidebar.radio(
-    "選擇功能", 
-    ["📊 總體概況", "🧮 快速計分", "📜 歷史紀錄"],
-    index=1 # 預設停留在計分頁面，方便連續錄入
-)
+# --- 4. Modern Sidebar Navigation (No Radio Buttons) ---
+if 'page' not in st.session_state:
+    st.session_state.page = "快速計分"  # Default landing page
 
-# 數據預加載
+with st.sidebar:
+    st.title("🀄 HK Mahjong Master")
+    st.markdown("---")
+    if st.button("📊 總體概況", use_container_width=True):
+        st.session_state.page = "總體概況"
+    if st.button("🧮 快速計分", use_container_width=True):
+        st.session_state.page = "快速計分"
+    if st.button("📜 歷史紀錄", use_container_width=True):
+        st.session_state.page = "歷史紀錄"
+    st.markdown("---")
+    st.caption(f"Last sync: {datetime.now().strftime('%H:%M:%S')}")
+
+# Load Master Data
 df_master = load_master_data()
 
-# --- 5. 分頁邏輯 ---
+# --- 5. Page Routing ---
 
-# --- 頁面 1: 總體概況 ---
-if menu == "📊 總體概況":
-    st.header("💰 雀神總結算 & 下場預測")
+# --- PAGE: 總體概況 ---
+if st.session_state.page == "總體概況":
+    st.header("📊 總結算 & 下場預測")
     
     m_cols = st.columns(4)
     for i, p in enumerate(PLAYERS):
@@ -70,32 +78,31 @@ if menu == "📊 總體概況":
             w = np.arange(1, len(recent) + 1)
             pred = np.average(recent, weights=w)
             pred_text = f"{pred:+.1f}"
-        m_cols[i].metric(label=f"{p} 總分", value=f"${total:,.0f}", delta=f"下場預測: {pred_text}")
+        m_cols[i].metric(label=f"{p} 總結算", value=f"${total:,.0f}", delta=f"預測: {pred_text}")
 
     st.divider()
     st.subheader("📈 累積走勢圖")
     st.line_chart(df_master.set_index("Date")[PLAYERS].cumsum())
 
     st.divider()
-    st.subheader("📊 玩家表現摘要")
+    st.subheader("📋 表現分析")
     summary_list = []
     for p in PLAYERS:
         scores = df_master[p]
         wins = (scores > 0).sum()
         summary_list.append({
             "玩家": p,
-            "對局天數": len(scores),
             "勝率 (%)": f"{(wins/len(scores)*100):.1f}%" if len(scores) > 0 else "0%",
             "場均得分": f"{scores.mean():.1f}",
             "生涯最高": f"${scores.max():,.0f}"
         })
     st.table(pd.DataFrame(summary_list).set_index("玩家"))
 
-# --- 頁面 2: 快速計分 ---
-elif menu == "🧮 快速計分":
+# --- PAGE: 快速計分 ---
+elif st.session_state.page == "快速計分":
     today_date_str = datetime.now().strftime("%Y/%m/%d")
     sheet_tab_name = today_date_str.replace("/", "-")
-    st.header(f"🧮 今日計分: {today_date_str}")
+    st.header(f"🧮 今日對局: {today_date_str}")
 
     try:
         sh = client.open_by_key(SHEET_ID)
@@ -105,43 +112,43 @@ elif menu == "🧮 快速計分":
     except:
         today_df = pd.DataFrame(columns=["Date"] + PLAYERS + ["Remark"])
 
-    st.markdown("### 🏆 今日即時累計")
-    st.markdown(" | ".join([f"**{p}**: `${today_df[p].sum():,.0f}`" for p in PLAYERS]))
+    st.markdown(f"### 🏆 今日即時累積")
+    cols = st.columns(4)
+    for i, p in enumerate(PLAYERS):
+        cols[i].markdown(f"**{p}**: `${today_df[p].sum():,.0f}`")
 
     st.divider()
-    with st.container():
-        col_in, col_pre = st.columns([1, 1])
-        with col_in:
-            st.markdown("#### 📝 本局輸入")
-            winner = st.selectbox("贏家", PLAYERS)
-            mode = st.radio("方式", ["出統", "自摸", "包自摸"], horizontal=True)
-            loser = st.selectbox("支付方", [p for p in PLAYERS if p != winner]) if mode != "自摸" else "三家"
-            fan = st.select_slider("翻數", options=list(range(3, 11)), value=3)
-            base = get_base_money(fan)
+    col_in, col_pre = st.columns([1, 1])
+    with col_in:
+        st.markdown("#### 📝 錄入數據")
+        winner = st.selectbox("贏家", PLAYERS)
+        mode = st.radio("食糊方式", ["出統", "自摸", "包自摸"], horizontal=True)
+        loser = st.selectbox("誰付錢？", [p for p in PLAYERS if p != winner]) if mode != "自摸" else "三家"
+        fan = st.select_slider("翻數", options=list(range(3, 11)), value=3)
+        base = get_base_money(fan)
 
-        with col_pre:
-            st.markdown("#### 🧐 寫入數據預覽")
-            res = {p: 0 for p in PLAYERS}
-            if mode == "出統": res[winner], res[loser] = base, -base
-            elif mode == "包自摸": res[winner], res[loser] = base * 3, -(base * 3)
-            else: 
-                res[winner] = base * 3
-                for p in PLAYERS: 
-                    if p != winner: res[p] = -base
-            
-            preview_row = {**{p: [res[p]] for p in PLAYERS}, "備註": [f"{winner} {mode} {fan}番"]}
-            st.table(pd.DataFrame(preview_row))
+    with col_pre:
+        st.markdown("#### 🧐 預覽寫入")
+        res = {p: 0 for p in PLAYERS}
+        if mode == "出統": res[winner], res[loser] = base, -base
+        elif mode == "包自摸": res[winner], res[loser] = base * 3, -(base * 3)
+        else: 
+            res[winner] = base * 3
+            for p in PLAYERS: 
+                if p != winner: res[p] = -base
+        
+        preview_row = {**{p: [res[p]] for p in PLAYERS}, "備註": [f"{winner} {mode} {fan}番"]}
+        st.table(pd.DataFrame(preview_row))
 
-        if st.button("🚀 確認錄入此局", use_container_width=True):
-            ws_target = get_or_create_worksheet(sheet_tab_name)
-            new_row = [datetime.now().strftime("%Y/%m/%d %H:%M"), res["Martin"], res["Lok"], res["Stephen"], res["Fongka"], f"{winner} {mode} {fan}番"]
-            ws_target.append_row(new_row)
-            st.success("✅ 已錄入")
-            st.rerun()
+    if st.button("🚀 確認錄入此局", use_container_width=True):
+        ws_target = get_or_create_worksheet(sheet_tab_name)
+        new_row = [datetime.now().strftime("%Y/%m/%d %H:%M"), res["Martin"], res["Lok"], res["Stephen"], res["Fongka"], f"{winner} {mode} {fan}番"]
+        ws_target.append_row(new_row)
+        st.success("✅ 數據已寫入")
+        st.rerun()
 
     st.divider()
-    st.markdown("### 🏁 完場結算")
-    if st.button("📤 同步並覆寫至 Master Record", type="primary", use_container_width=True):
+    if st.button("📤 結算並覆寫 Master Record", type="primary", use_container_width=True):
         if not today_df.empty:
             ws_master = sh.worksheet(MASTER_SHEET)
             all_data = ws_master.get_all_values()
@@ -158,12 +165,12 @@ elif menu == "🧮 快速計分":
             rows_to_keep.append(summary_row)
             ws_master.clear()
             ws_master.update('A1', rows_to_keep)
-            st.success(f"🎊 {today_date_str} 紀錄更新成功")
+            st.success("🎊 總表結算完成！")
             st.cache_data.clear()
         else:
-            st.error("今日無數據可結算。")
+            st.error("今日暫無數據。")
 
-# --- 頁面 3: 歷史紀錄 ---
-elif menu == "📜 歷史紀錄":
-    st.header("📜 歷史得分紀錄 (Master Record)")
+# --- PAGE: 歷史紀錄 ---
+elif st.session_state.page == "歷史紀錄":
+    st.header("📜 歷史紀錄 (Martin / Lok / Stephen / Fongka)")
     st.dataframe(df_master[PLAYERS].sort_index(ascending=False), use_container_width=True)
