@@ -3,7 +3,6 @@ import pandas as pd
 import numpy as np
 
 def calculate_max_streak(data):
-    """計算連續贏錢天數的最大值"""
     max_streak = 0
     current_streak = 0
     for val in data:
@@ -15,60 +14,62 @@ def calculate_max_streak(data):
     return max_streak
 
 def show_dashboard(df_master, players):
-    st.title("📊 雀神進階數據分析")
+    st.title("📊 雀神數據監控")
 
-    # --- 1. 預測與區間分析 ---
-    st.subheader("🔮 戰力預測與手感分析")
-    m_cols = st.columns(4)
-
-    for i, p in enumerate(players):
+    # --- 1. 戰力預測區 (針對 iPhone 優化為卡片式佈局) ---
+    st.subheader("🔮 下場預測與手感")
+    
+    # 在手機端，這四個 column 會自動變成上下排列的卡片
+    for p in players:
         data = df_master[p].values
-        if len(data) >= 3:
-            # A. 加權移動平均 (WMA)
-            weights = np.arange(1, len(data) + 1)
-            prediction = np.average(data, weights=weights)
-            
-            # B. 波動標準差 (Sigma)
-            std_dev = np.std(data)
-            lower_bound = prediction - (std_dev * 0.5)
-            upper_bound = prediction + (std_dev * 0.5)
-            
-            # C. Z-Score 狀態
-            last_score = data[-1]
-            avg_score = np.mean(data)
-            z_score = (last_score - avg_score) / std_dev if std_dev > 0 else 0
-            
-            if z_score > 1: status = "🔥 手感火熱"
-            elif z_score < -1: status = "❄️ 手感冰冷"
-            else: status = "⚖️ 表現穩定"
+        with st.container(border=True): # 使用邊框營造卡片感
+            if len(data) >= 3:
+                # 統計運算
+                weights = np.arange(1, len(data) + 1)
+                prediction = np.average(data, weights=weights)
+                std_dev = np.std(data)
+                lower_bound = prediction - (std_dev * 0.5)
+                upper_bound = prediction + (std_dev * 0.5)
+                
+                last_score = data[-1]
+                avg_score = np.mean(data)
+                z_score = (last_score - avg_score) / std_dev if std_dev > 0 else 0
+                
+                # 色彩與狀態
+                if z_score > 1: status, color = "🔥 手感火熱", "#ff4b4b"
+                elif z_score < -1: status, color = "❄️ 手感冰冷", "#1c83e1"
+                else: status, color = "⚖️ 表現穩定", "#7d7d7d"
 
-            with m_cols[i]:
-                st.metric(label=f"{p} 累積結餘", value=f"${sum(data):,.0f}")
-                st.markdown(f"**下場預測:** `${prediction:+.1f}`")
-                st.caption(f"預估範圍: `${lower_bound:.0f}` ~ `${upper_bound:.0f}`")
-                st.info(status)
-        else:
-            m_cols[i].write(f"{p}: 數據不足")
+                # 顯示排版
+                col_name, col_val = st.columns([1, 1])
+                with col_name:
+                    st.markdown(f"### {p}")
+                    st.write(status)
+                with col_val:
+                    st.metric("總結餘", f"${sum(data):,.0f}")
 
-    # --- 預測方法備註 ---
-    with st.expander("ℹ️ 預測模型說明 (Prediction Methodology)"):
-        st.write("""
-        本系統採用以下統計模型進行分析：
-        1. **加權預測 (WMA)**：並非簡單平均，而是給予**近期對局**更高的權重，反映玩家最近的手感趨勢。
-        2. **預估範圍 ($\sigma$)**：基於歷史波動率。範圍越寬，代表該玩家打法較「大出大進」；範圍越窄，代表打法趨於穩健。
-        3. **狀態判斷 (Z-Score)**：衡量最後一場表現與長期平均值的離散程度，用以判斷玩家是否處於「連旺」或「連衰」的統計臨界點。
-        """)
+                # --- 放大預測字體 ---
+                st.markdown(f"""
+                <div style="background-color: #f0f2f6; padding: 15px; border-radius: 10px; margin-top: 10px;">
+                    <p style="margin: 0; font-size: 14px; color: #555;">下場預測金額</p>
+                    <h2 style="margin: 0; color: {color}; font-size: 32px;">${prediction:+.1f}</h2>
+                    <p style="margin: 0; font-size: 12px; color: #888;">預估範圍: ${lower_bound:.0f} ~ ${upper_bound:.0f}</p>
+                </div>
+                """, unsafe_allow_html=True)
+            else:
+                st.write(f"⚠️ {p}: 數據不足 (需至少3場)")
 
     st.divider()
 
-    # --- 2. 累計走勢圖 ---
-    st.subheader("📈 歷史戰鬥力走勢 (累積損益)")
+    # --- 2. 趨勢圖 (針對手機調整高度) ---
+    st.subheader("📈 歷史戰鬥力走勢")
     cumulative_df = df_master.set_index("Date")[players].cumsum()
-    st.line_chart(cumulative_df)
+    # 在手機上高度不宜太高，方便滑動
+    st.line_chart(cumulative_df, height=300)
 
-    # --- 3. 專業統計 KPI ---
+    # --- 3. 專業統計表 (使用 DataFrame 讓手機可以左右滑動) ---
     st.divider()
-    st.subheader("📋 深度統計指標 (Deep Analytics)")
+    st.subheader("📋 深度統計指標")
     
     stats_list = []
     for p in players:
@@ -80,10 +81,14 @@ def show_dashboard(df_master, players):
         stats_list.append({
             "玩家": p,
             "勝率": f"{(win_days/total_days*100):.1f}%",
-            "波動風險($\sigma$)": f"{p_data.std():.1f}",
-            "穩定係數": f"{stability:.2f}",
-            "最高連勝": f"{calculate_max_streak(p_data)} 場",
-            "期望值 (EV)": f"${p_data.mean():.1f}"
+            "穩定": f"{stability:.2f}",
+            "連勝": f"{calculate_max_streak(p_data)}場",
+            "EV": f"${p_data.mean():.1f}"
         })
     
-    st.table(pd.DataFrame(stats_list).set_index("玩家"))
+    # 手機端使用 dataframe 比 table 好，因為支援橫向滾動
+    st.dataframe(pd.DataFrame(stats_list).set_index("玩家"), use_container_width=True)
+
+    # --- 預測方法備註 ---
+    with st.expander("ℹ️ 預測模型說明"):
+        st.caption("採用 WMA 加權移動平均與 0.5σ 標準差區間計算。")
