@@ -1,44 +1,70 @@
 import pandas as pd
 import os
+from datetime import datetime
 
-# 設定 CSV 檔案名稱
-CSV_FILE = "mahjong_data.csv"
+# 設定資料夾名稱
+RECORDS_DIR = "records"
+MASTER_FILE = "mahjong_data.csv"
 
 def load_master_data(players):
-    """從 CSV 載入數據，若檔案不存在則建立一個初始範本"""
-    if not os.path.exists(CSV_FILE):
-        df = pd.DataFrame(columns=["Date"] + players + ["Remark"])
-        df.to_csv(CSV_FILE, index=False)
-        return df
-    
-    # 讀取並確保日期格式正確
-    df = pd.read_csv(CSV_FILE)
-    df['Date'] = pd.to_datetime(df['Date'])
-    return df
+    """
+    從兩處讀取數據：
+    1. 原始的 mahjong_data.csv (歷史總表)
+    2. records/ 資料夾下所有的每日 CSV
+    """
+    all_data = []
 
-def save_to_csv(new_row_list):
-    """將新對局數據附加到 CSV 檔案中"""
-    # 載入現有數據
-    df = pd.read_csv(CSV_FILE)
-    # 建立新列（確保欄位順序與 CSV 一致）
-    new_df = pd.DataFrame([new_row_list], columns=df.columns)
-    # 合併並儲存
-    df = pd.concat([df, new_df], ignore_index=True)
-    df.to_csv(CSV_FILE, index=False)
+    # 1. 讀取原始總表 (如果存在)
+    if os.path.exists(MASTER_FILE):
+        df_master = pd.read_csv(MASTER_FILE)
+        all_data.append(df_master)
+
+    # 2. 讀取 records/ 資料夾內的所有每日 CSV
+    if not os.path.exists(RECORDS_DIR):
+        os.makedirs(RECORDS_DIR) # 自動建立資料夾
+    
+    for filename in os.listdir(RECORDS_DIR):
+        if filename.endswith(".csv"):
+            file_path = os.path.join(RECORDS_DIR, filename)
+            df_day = pd.read_csv(file_path)
+            all_data.append(df_day)
+
+    # 如果完全沒數據，回傳空白範本
+    if not all_data:
+        return pd.DataFrame(columns=["Date"] + players + ["Remark"])
+
+    # 合併所有數據
+    df_final = pd.concat(all_data, ignore_index=True)
+    df_final['Date'] = pd.to_datetime(df_final['Date'])
+    return df_final.sort_values(by="Date")
+
+def save_to_csv(new_row_list, players):
+    """
+    將新對局存入當日的專屬 CSV (例如 records/2026-02-24.csv)
+    """
+    if not os.path.exists(RECORDS_DIR):
+        os.makedirs(RECORDS_DIR)
+
+    # 取得今日日期作為檔名
+    today_str = datetime.now().strftime("%Y-%m-%d")
+    file_path = os.path.join(RECORDS_DIR, f"{today_str}.csv")
+    
+    # 定義欄位名稱
+    columns = ["Date"] + players + ["Remark"]
+    
+    # 建立新列 DataFrame
+    new_df = pd.DataFrame([new_row_list], columns=columns)
+
+    if os.path.exists(file_path):
+        # 如果今日檔案已存在，附加在後面
+        df_today = pd.read_csv(file_path)
+        df_today = pd.concat([df_today, new_df], ignore_index=True)
+        df_today.to_csv(file_path, index=False)
+    else:
+        # 如果今日第一場，建立新檔
+        new_df.to_csv(file_path, index=False)
 
 def get_base_money(fan):
-    """
-    麻將番數對應表 (底分計算)
-    3番:$8, 4番:$16, 5番:$32, 6番:$48, 7番:$64, 8番:$96, 9番:$128, 10番:$192
-    """
-    mapping = {
-        3: 8, 
-        4: 16, 
-        5: 32, 
-        6: 48, 
-        7: 64, 
-        8: 96, 
-        9: 128, 
-        10: 192
-    }
+    """番數對應表"""
+    mapping = {3: 8, 4: 16, 5: 32, 6: 48, 7: 64, 8: 96, 9: 128, 10: 192}
     return mapping.get(fan, 0)
