@@ -10,13 +10,14 @@ st.set_page_config(page_title="HK Mahjong Master", page_icon="🀄", layout="wid
 # --- 2. 參數與連線 ---
 SHEET_URL = "https://docs.google.com/spreadsheets/d/12rjgnWh2gMQ05TsFR6aCCn7QXB6rpa-Ylb0ma4Cs3E4/edit"
 PLAYERS = ["Martin", "Lok", "Stephen", "Fongka"]
-WORKSHEET_NAME = "Sheet1" # 確保與 Google Sheet 名稱一致
+# --- 已更新工作表名稱 ---
+WORKSHEET_NAME = "Master Record" 
 
 conn = st.connection("gsheets", type=GSheetsConnection)
 
 # --- 3. 計錢邏輯 Function ---
 def get_base_money(fan):
-    # 你的自定義計分表
+    # 你的計分規則: 3=4, 4=16, 5=48, 6=64, 7=96, 8=128, 9=192, 10=256
     fan_map = {
         3: 4, 4: 16, 5: 48, 6: 64, 
         7: 96, 8: 128, 9: 192, 10: 256
@@ -26,13 +27,23 @@ def get_base_money(fan):
 
 @st.cache_data(ttl=10)
 def load_data():
-    df = conn.read(spreadsheet=SHEET_URL, worksheet=WORKSHEET_NAME)
-    df = df.dropna(how='all')
-    date_col = 'Date' if 'Date' in df.columns else df.columns[0]
-    df[date_col] = pd.to_datetime(df[date_col])
-    for p in PLAYERS:
-        df[p] = pd.to_numeric(df[p], errors='coerce').fillna(0)
-    return df, date_col
+    try:
+        # 讀取 Master Record
+        df = conn.read(spreadsheet=SHEET_URL, worksheet=WORKSHEET_NAME)
+        df = df.dropna(how='all')
+        
+        # 識別日期欄位
+        date_col = 'Date' if 'Date' in df.columns else df.columns[0]
+        df[date_col] = pd.to_datetime(df[date_col])
+        
+        # 確保分數欄位是數字
+        for p in PLAYERS:
+            if p in df.columns:
+                df[p] = pd.to_numeric(df[p], errors='coerce').fillna(0)
+        return df, date_col
+    except Exception as e:
+        st.error(f"讀取失敗：請檢查 Google Sheet 分頁名稱是否為 '{WORKSHEET_NAME}'")
+        st.stop()
 
 # --- 4. 主程式介面 ---
 df, date_col = load_data()
@@ -67,7 +78,7 @@ with tab_dashboard:
     if not yearly_df.empty:
         st.table(yearly_df.apply(add_trophy, axis=1))
 
-    # 走勢圖
+    # 累積走勢圖
     st.subheader("📈 累積走勢")
     trend_data = df.groupby(date_col)[PLAYERS].sum().cumsum()
     st.line_chart(trend_data)
@@ -75,6 +86,7 @@ with tab_dashboard:
 # --- TAB 2: 自動計錢入賬 ---
 with tab_calculator:
     st.header("🧮 即時計分錄入")
+    st.caption(f"數據將寫入分頁: {WORKSHEET_NAME}")
     
     with st.form("mahjong_calc_form", clear_on_submit=True):
         f_date = st.date_input("比賽日期", datetime.now())
@@ -109,39 +121,4 @@ with tab_calculator:
                 calc_result[winner] = base_money * 3
                 for p in PLAYERS:
                     if p != winner:
-                        calc_result[p] = -base_money
-            
-            # 顯示預覽
-            for p, val in calc_result.items():
-                color = "green" if val > 0 else "red" if val < 0 else "gray"
-                st.markdown(f"**{p}**: :{color}[${val:,.0f}]")
-
-        submit_btn = st.form_submit_button("🚀 確認並寫入紀錄", use_container_width=True)
-        
-        if submit_btn:
-            # 建立新數據
-            new_entry = pd.DataFrame({
-                date_col: [pd.to_datetime(f_date)],
-                "Martin": [calc_result["Martin"]],
-                "Lok": [calc_result["Lok"]],
-                "Stephen": [calc_result["Stephen"]],
-                "Fongka": [calc_result["Fongka"]],
-                "Remark": [f"{winner} {mode} {fan}番"]
-            })
-            
-            # 讀取最新並合併
-            latest_df = conn.read(spreadsheet=SHEET_URL, worksheet=WORKSHEET_NAME)
-            updated_df = pd.concat([latest_df, new_entry], ignore_index=True)
-            
-            # 寫入回 Google Sheets
-            conn.update(spreadsheet=SHEET_URL, worksheet=WORKSHEET_NAME, data=updated_df)
-            st.success(f"✅ 成功錄入：{winner} 贏了 ${calc_result[winner]}！")
-            st.cache_data.clear()
-            st.rerun()
-
-# --- 側邊欄 ---
-st.sidebar.title("🀄 雀神選單")
-st.sidebar.info("切換上方 Tab 以查看數據或錄入新成績。")
-if st.sidebar.button("刷新數據"):
-    st.cache_data.clear()
-    st.rerun()
+                        calc_result
