@@ -88,4 +88,60 @@ with tab_calculator:
             if mode == "出統 (食客付)":
                 loser = st.selectbox("誰出沖？", [p for p in PLAYERS if p != winner])
             elif mode == "包自摸 (一人包)":
-                loser =
+                loser = st.selectbox("誰包自摸？", [p for p in PLAYERS if p != winner])
+            else:
+                loser = "三家"
+                
+            fan = st.number_input("幾多番？", min_value=3, max_value=13, value=3)
+            base_money = get_base_money(fan)
+
+        with col_preview:
+            st.write("##### 💰 預計損益預覽")
+            # 損益計算邏輯
+            calc_result = {p: 0 for p in PLAYERS}
+            if mode == "出統 (食客付)":
+                calc_result[winner] = base_money
+                calc_result[loser] = -base_money
+            elif mode == "包自摸 (一人包)":
+                calc_result[winner] = base_money * 3
+                calc_result[loser] = -(base_money * 3)
+            else: # 自摸
+                calc_result[winner] = base_money * 3
+                for p in PLAYERS:
+                    if p != winner:
+                        calc_result[p] = -base_money
+            
+            # 顯示預覽
+            for p, val in calc_result.items():
+                color = "green" if val > 0 else "red" if val < 0 else "gray"
+                st.markdown(f"**{p}**: :{color}[${val:,.0f}]")
+
+        submit_btn = st.form_submit_button("🚀 確認並寫入紀錄", use_container_width=True)
+        
+        if submit_btn:
+            # 建立新數據
+            new_entry = pd.DataFrame({
+                date_col: [pd.to_datetime(f_date)],
+                "Martin": [calc_result["Martin"]],
+                "Lok": [calc_result["Lok"]],
+                "Stephen": [calc_result["Stephen"]],
+                "Fongka": [calc_result["Fongka"]],
+                "Remark": [f"{winner} {mode} {fan}番"]
+            })
+            
+            # 讀取最新並合併
+            latest_df = conn.read(spreadsheet=SHEET_URL, worksheet=WORKSHEET_NAME)
+            updated_df = pd.concat([latest_df, new_entry], ignore_index=True)
+            
+            # 寫入回 Google Sheets
+            conn.update(spreadsheet=SHEET_URL, worksheet=WORKSHEET_NAME, data=updated_df)
+            st.success(f"✅ 成功錄入：{winner} 贏了 ${calc_result[winner]}！")
+            st.cache_data.clear()
+            st.rerun()
+
+# --- 側邊欄 ---
+st.sidebar.title("🀄 雀神選單")
+st.sidebar.info("切換上方 Tab 以查看數據或錄入新成績。")
+if st.sidebar.button("刷新數據"):
+    st.cache_data.clear()
+    st.rerun()
