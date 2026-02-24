@@ -6,10 +6,10 @@ from google.oauth2.service_account import Credentials
 from streamlit_gsheets import GSheetsConnection
 from datetime import datetime
 
-# --- 1. Page Configuration ---
+# --- 1. 頁面配置 ---
 st.set_page_config(page_title="HK Mahjong Master Pro", page_icon="🀄", layout="wide")
 
-# --- 2. Credentials & Connection ---
+# --- 2. 認證與連線 ---
 creds_dict = st.secrets["connections"]["gsheets"]
 scope = ["https://www.googleapis.com/auth/spreadsheets", "https://www.googleapis.com/auth/drive"]
 creds = Credentials.from_service_account_info(creds_dict, scopes=scope)
@@ -22,12 +22,11 @@ PLAYERS = ["Martin", "Lok", "Stephen", "Fongka"]
 
 conn = st.connection("gsheets", type=GSheetsConnection)
 
-# --- 3. Core Functions ---
+# --- 3. 核心功能函式 ---
 def get_base_money(fan):
-    # Updated: 3 Fan = $8
+    # 3番=$8, 4番=$16, 5番=$48...
     fan_map = {3: 8, 4: 16, 5: 48, 6: 64, 7: 96, 8: 128, 9: 192, 10: 256}
-    if fan > 10: return 256
-    return fan_map.get(fan, 0)
+    return fan_map.get(fan, 256 if fan > 10 else 0)
 
 def get_or_create_worksheet(sheet_name):
     sh = client.open_by_key(SHEET_ID)
@@ -46,147 +45,22 @@ def load_master_data():
         df[p] = pd.to_numeric(df[p], errors='coerce').fillna(0)
     return df
 
-# --- 4. Load Data ---
+# --- 4. 數據加載 ---
 df_master = load_master_data()
 
-# --- 5. Interface Tabs ---
-tabs = st.tabs(["📊 總體概況", "🧮 快速計分", "📜 歷史明細", "🔮 神算預測"])
+# --- 5. 介面 Tabs ---
+tabs = st.tabs(["📊 總體概況", "🧮 快速計分", "📜 歷史紀錄"])
 
-# --- TAB 1: Summary Statistics (Dashboard) ---
+# --- TAB 1: 總體概況 (含預測 & 累積走勢) ---
 with tabs[0]:
-    st.header("💰 雀神累積總結算")
+    st.header("💰 雀神總結算 & 下場預測")
     
-    # Metrics
+    # A. 頂部指標與預測
     m_cols = st.columns(4)
     for i, p in enumerate(PLAYERS):
         total = df_master[p].sum()
-        avg_score = df_master[p].mean()
-        m_cols[i].metric(label=f"{p} 總結餘", value=f"${total:,.0f}", delta=f"場均 ${avg_score:.1f}")
-
-    st.divider()
-
-    # Advanced Stats
-    st.subheader("📊 玩家深度數據分析")
-    summary_list = []
-    for p in PLAYERS:
-        scores = df_master[p]
-        wins = (scores > 0).sum()
-        total_games = len(scores)
-        summary_list.append({
-            "玩家": p,
-            "總對局日": total_games,
-            "贏錢日數": wins,
-            "勝率 (%)": f"{(wins/total_games*100):.1f}%" if total_games > 0 else "0%",
-            "單日最高": f"${scores.max():,.0f}",
-            "波動穩定度": f"{scores.std():.1f}"
-        })
-    st.table(pd.DataFrame(summary_list).set_index("玩家"))
-
-    # Last Game Day
-    if not df_master.empty:
-        last_date = df_master['Date'].max()
-        st.subheader(f"📅 最近結算紀錄 ({last_date.strftime('%Y/%m/%d')})")
-        last_day_df = df_master[df_master['Date'].dt.date == last_date.date()].copy()
-        last_day_df['Date'] = last_day_df['Date'].dt.strftime('%Y/%m/%d')
-        # Safety filter for columns
-        display_cols = [c for c in (PLAYERS + ['Remark']) if c in last_day_df.columns]
-        st.dataframe(last_day_df[display_cols], use_container_width=True, hide_index=True)
-
-# --- TAB 2: Calculator (Daily Record) ---
-with tabs[1]:
-    today_date_str = datetime.now().strftime("%Y/%m/%d")
-    sheet_tab_name = today_date_str.replace("/", "-")
-    st.header(f"🧮 今日即時錄入: {today_date_str}")
-
-    # Fetch daily data for real-time total
-    try:
-        sh = client.open_by_key(SHEET_ID)
-        ws_today = sh.worksheet(sheet_tab_name)
-        today_raw = ws_today.get_all_records()
-        today_df = pd.DataFrame(today_raw) if today_raw else pd.DataFrame(columns=PLAYERS)
-        for p in PLAYERS:
-            if p in today_df.columns:
-                today_df[p] = pd.to_numeric(today_df[p], errors='coerce').fillna(0)
-    except:
-        today_df = pd.DataFrame(columns=PLAYERS)
-
-    # Real-time Score Preview
-    st.subheader("🏆 今日累積總體損益")
-    score_cols = st.columns(4)
-    for i, p in enumerate(PLAYERS):
-        day_total = today_df[p].sum() if p in today_df.columns else 0
-        score_cols[i].metric(label=f"{p} 今日得分", value=f"${day_total:,.0f}")
-
-    st.divider()
-
-    # Form
-    with st.form("mahjong_calculator_vfinal", clear_on_submit=True):
-        c_in, c_pre = st.columns([2, 1])
-        with c_in:
-            winner = st.selectbox("贏家 (Winner)", PLAYERS)
-            mode = st.radio("食糊方式", ["出統", "自摸", "包自摸"], horizontal=True)
-            loser = st.selectbox("誰支付？", [p for p in PLAYERS if p != winner]) if mode != "自摸" else "三家"
-            fan = st.number_input("翻數", min_value=3, max_value=13, value=3)
-            base = get_base_money(fan)
-        
-        with c_pre:
-            st.write("##### 💰 本局計算")
-            res = {p: 0 for p in PLAYERS}
-            if mode == "出統": res[winner], res[loser] = base, -base
-            elif mode == "包自摸": res[winner], res[loser] = base * 3, -(base * 3)
-            else: 
-                res[winner] = base * 3
-                for p in PLAYERS: 
-                    if p != winner: res[p] = -base
-            for p, v in res.items():
-                st.write(f"{p}: {'🟢' if v >= 0 else '🔴'} ${v}")
-
-        if st.form_submit_button("✅ 錄入本局結果", use_container_width=True):
-            ws_target = get_or_create_worksheet(sheet_tab_name)
-            # Use Remark column as requested
-            new_row = [datetime.now().strftime("%Y/%m/%d %H:%M"), res["Martin"], res["Lok"], res["Stephen"], res["Fongka"], f"{winner} {mode} {fan}番"]
-            ws_target.append_row(new_row)
-            st.success("本局已成功存入今日分頁！")
-            st.rerun()
-
-    # Sync to Master Button
-    st.divider()
-    if st.button("📤 完場：將今日總分結算至 Master Record", type="primary", use_container_width=True):
-        if not today_df.empty and any(p in today_df.columns for p in PLAYERS):
-            final_sync_row = [
-                today_date_str, 
-                int(today_df["Martin"].sum()) if "Martin" in today_df.columns else 0, 
-                int(today_df["Lok"].sum()) if "Lok" in today_df.columns else 0, 
-                int(today_df["Stephen"].sum()) if "Stephen" in today_df.columns else 0, 
-                int(today_df["Fongka"].sum()) if "Fongka" in today_df.columns else 0, 
-                f"Daily Total Sync ({sheet_tab_name})"
-            ]
-            ws_master = sh.worksheet(MASTER_SHEET)
-            ws_master.append_row(final_sync_row)
-            st.success("🎉 今日戰績已成功結算至總表！")
-            st.cache_data.clear()
-        else:
-            st.error("找不到今日數據，請先錄入。")
-
-# --- TAB 3: History Detail ---
-with tabs[2]:
-    st.header("📜 歷史紀錄明細 (Master Record)")
-    history_view = df_master.sort_values(by="Date", ascending=False).copy()
-    history_view['Date'] = history_view['Date'].dt.strftime('%Y/%m/%d')
-    st.dataframe(history_view, use_container_width=True, hide_index=True)
-    
-    st.subheader("📈 歷史累積走勢")
-    st.line_chart(df_master.set_index("Date")[PLAYERS].cumsum())
-
-# --- TAB 4: Prediction ---
-with tabs[3]:
-    st.header("🔮 下場表現預測")
-    p_cols = st.columns(4)
-    for i, p in enumerate(PLAYERS):
-        recent = df_master[p].tail(10).values
+        recent = df_master[p].tail(7).values
+        pred_text = "N/A"
         if len(recent) >= 3:
             w = np.arange(1, len(recent) + 1)
-            pred = np.average(recent, weights=w)
-            p_cols[i].metric(f"{p} 預測得分", f"{pred:+.1f}")
-        else:
-            p_cols[i].write("需要至少 3 日數據。")
+            pred = np.average(recent, weights=
