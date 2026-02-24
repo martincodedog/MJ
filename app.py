@@ -44,12 +44,12 @@ def load_master_data():
         df[p] = pd.to_numeric(df[p], errors='coerce').fillna(0)
     return df
 
-# --- 4. Sidebar 導航 ---
+# --- 4. Sidebar 導航 (加入 Master Title) ---
 if 'page' not in st.session_state:
     st.session_state.page = "快速計分"
 
 with st.sidebar:
-    st.title("🀄 HK Mahjong")
+    st.markdown(f"# 🀄 G 啦，好想打牌") # 你的專屬標題
     st.markdown("---")
     if st.button("📊 總體概況", use_container_width=True):
         st.session_state.page = "總體概況"
@@ -63,29 +63,60 @@ df_master = load_master_data()
 
 # --- 5. 頁面內容 ---
 
-# --- 頁面 1: 總體概況 ---
+# --- 頁面 1: 總體概況 (專業統計版) ---
 if st.session_state.page == "總體概況":
-    st.header("📊 總結算 & 下場預測")
+    st.header("📊 專業數據分析系統")
+    
+    # A. 頂部核心指標
     m_cols = st.columns(4)
     for i, p in enumerate(PLAYERS):
         total = df_master[p].sum()
-        recent = df_master[p].tail(7).values
-        pred_text = "N/A"
-        if len(recent) >= 3:
-            w = np.arange(1, len(recent) + 1)
-            pred = np.average(recent, weights=w)
-            pred_text = f"{pred:+.1f}"
-        m_cols[i].metric(label=f"{p} 總結算", value=f"${total:,.0f}", delta=f"預測: {pred_text}")
+        # 加權預測 (最近對局比重較高)
+        recent = df_master[p].tail(5).values
+        pred_val = np.average(recent, weights=np.arange(1, len(recent)+1)) if len(recent) >= 3 else 0
+        
+        m_cols[i].metric(
+            label=f"{p} 累積結餘", 
+            value=f"${total:,.0f}", 
+            delta=f"趨勢預測: {pred_val:+.1f}",
+            delta_color="normal"
+        )
 
     st.divider()
-    st.subheader("📈 累積走勢圖")
+
+    # B. 累積走勢圖
+    st.subheader("📈 歷史戰鬥力走勢")
     st.line_chart(df_master.set_index("Date")[PLAYERS].cumsum())
+
+    # C. 專業統計表
+    st.divider()
+    st.subheader("📋 核心表現摘要 (KPIs)")
+    
+    stats_df = []
+    for p in PLAYERS:
+        p_data = df_master[p]
+        wins = (p_data > 0).sum()
+        total_days = len(p_data)
+        
+        stats_df.append({
+            "玩家": p,
+            "對局總天數": total_days,
+            "勝場 (贏錢日)": wins,
+            "勝率 (Win Rate)": f"{(wins/total_days*100):.1f}%" if total_days > 0 else "0%",
+            "場均盈虧 (Avg)": f"${p_data.mean():.1f}",
+            "最大單日盈利": f"${p_data.max():,.0f}",
+            "最大單日虧損": f"${p_data.min():,.0f}",
+            "風險值 (波動率)": f"{p_data.std():.1f}"
+        })
+    
+    # 顯示美化後的表格
+    st.table(pd.DataFrame(stats_df).set_index("玩家"))
 
 # --- 頁面 2: 快速計分 ---
 elif st.session_state.page == "快速計分":
     today_date_str = datetime.now().strftime("%Y/%m/%d")
     sheet_tab_name = today_date_str.replace("/", "-")
-    st.header(f"🧮 今日對局: {today_date_str}")
+    st.header(f"🧮 今日對局錄入: {today_date_str}")
 
     try:
         sh = client.open_by_key(SHEET_ID)
@@ -95,8 +126,7 @@ elif st.session_state.page == "快速計分":
     except:
         today_df = pd.DataFrame(columns=["Date"] + PLAYERS + ["Remark"])
 
-    # --- 改進：使用 Metric 讓數字更大更醒目 ---
-    st.markdown("### 🏆 今日即時累積")
+    st.markdown("### 🏆 今日即時累計")
     m_cols = st.columns(4)
     for i, p in enumerate(PLAYERS):
         day_val = today_df[p].sum() if p in today_df.columns else 0
@@ -108,12 +138,12 @@ elif st.session_state.page == "快速計分":
         st.markdown("#### 📝 錄入數據")
         winner = st.selectbox("贏家", PLAYERS)
         mode = st.radio("方式", ["出統", "自摸", "包自摸"], horizontal=True)
-        loser = st.selectbox("誰付錢？", [p for p in PLAYERS if p != winner]) if mode != "自摸" else "三家"
+        loser = st.selectbox("誰支付？", [p for p in PLAYERS if p != winner]) if mode != "自摸" else "三家"
         fan = st.select_slider("翻數", options=list(range(3, 11)), value=3)
         base = get_base_money(fan)
 
     with col_pre:
-        st.markdown("#### 🧐 預覽寫入")
+        st.markdown("#### 🧐 預覽寫入內容")
         res = {p: 0 for p in PLAYERS}
         if mode == "出統": res[winner], res[loser] = base, -base
         elif mode == "包自摸": res[winner], res[loser] = base * 3, -(base * 3)
@@ -129,7 +159,7 @@ elif st.session_state.page == "快速計分":
         ws_target = get_or_create_worksheet(sheet_tab_name)
         new_row = [datetime.now().strftime("%Y/%m/%d %H:%M"), res["Martin"], res["Lok"], res["Stephen"], res["Fongka"], f"{winner} {mode} {fan}番"]
         ws_target.append_row(new_row)
-        st.success("✅ 數據已寫入")
+        st.success("✅ 數據已寫入今日分頁")
         st.rerun()
 
     st.divider()
@@ -152,9 +182,7 @@ elif st.session_state.page == "快速計分":
 
 # --- 頁面 3: 歷史紀錄 ---
 elif st.session_state.page == "歷史紀錄":
-    st.header("📜 歷史紀錄")
-    # --- 改進：將 Date 設為 Index 並隱藏序號 ---
+    st.header("📜 歷史得分紀錄")
     history_display = df_master.set_index("Date")[PLAYERS].sort_index(ascending=False)
-    # 格式化日期顯示
     history_display.index = history_display.index.strftime('%Y/%m/%d')
     st.dataframe(history_display, use_container_width=True)
