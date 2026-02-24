@@ -18,7 +18,7 @@ if 'page' not in st.session_state:
 
 # Sidebar Navigation (Same as before)
 with st.sidebar:
-    st.markdown("### 🀄 雀神本地版")
+    st.markdown("### 🀄 G啦！！！！")
     if st.button("📊 總體概況", use_container_width=True):
         st.session_state.page = "總體概況"
     if st.button("🧮 快速計分", use_container_width=True):
