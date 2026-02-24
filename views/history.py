@@ -2,65 +2,78 @@ import streamlit as st
 import pandas as pd
 
 def show_history(df_master, players):
-    st.header("📜 歷史紀錄與年度總結")
+    st.markdown("<h2 style='text-align: center;'>📜 歷史紀錄</h2>", unsafe_allow_html=True)
     
     if df_master.empty:
         st.warning("目前尚無歷史數據。")
         return
 
-    # --- 1. 年度總結 (Yearly Summary) ---
-    st.subheader("📅 年度戰績總結 (年度最強)")
+    # --- 1. 年度總結 ---
+    st.subheader("📅 年度戰績總結")
     
     df_yearly = df_master.copy()
     df_yearly['Year'] = df_yearly['Date'].dt.year
     
-    # 算出年度總計數字與對局天數
+    # A. 算各人年度總分
     yearly_summary = df_yearly.groupby('Year')[players].sum().sort_index(ascending=False)
-    yearly_days = df_yearly.groupby('Year')['Date'].count()
     
-    # 定義格式化邏輯：每行最高分（Winner）在數字後加 👑
+    # B. 修正對局天數：計算該年度有幾多個「不重複」日期
+    # 注意：我哋攞 Date 嘅日期部分 (.dt.date) 再計 nunique
+    yearly_days = df_yearly.groupby('Year')['Date'].apply(lambda x: x.dt.date.nunique())
+    
+    # C. 格式化：贏家加皇冠
     def add_winner_emoji_after(row):
-        # 找出最大值的玩家名
-        max_idx = row.idxmax()
-        
-        # 轉換為字串格式
+        max_val = row.max()
         formatted = row.apply(lambda x: f"${x:,.0f}")
-        
-        # 只有當最高分大於 0 時，在數字後加皇冠
-        if row[max_idx] > 0:
+        if max_val > 0:
+            max_idx = row.idxmax()
             formatted[max_idx] = f"{formatted[max_idx]} 👑"
-            
         return formatted
 
-    # 應用格式化
     display_yearly = yearly_summary.apply(add_winner_emoji_after, axis=1)
 
-    # 在表格中加入對局天數資訊
-    display_yearly['對局天數'] = yearly_days.values
-
-    # 顯示年度表格
-    st.table(display_yearly)
+    # --- 關鍵修正：確保 Index 對齊再合併 ---
+    display_yearly['天數'] = yearly_days
+    
+    # iPhone 建議用 dataframe 方便左右滑動
+    st.dataframe(display_yearly, width='stretch')
 
     st.divider()
 
     # --- 2. 每日對局明細 ---
-    st.subheader("📝 每日對局明細")
+    st.subheader("📝 每日明細 (倒序)")
     
-    history_display = df_master.set_index("Date")[players].sort_index(ascending=False)
-    history_display.index = history_display.index.strftime('%Y/%m/%d')
+    # 針對 iPhone 優化顯示內容
+    history_display = df_master.copy().sort_values(by="Date", ascending=False)
+    history_display['Date'] = history_display['Date'].dt.strftime('%m/%d %H:%M')
     
+    # 只顯示 Date + 玩家 + Remark
+    cols_to_show = ["Date"] + players
+    if 'Remark' in history_display.columns:
+        cols_to_show.append('Remark')
+        
     st.dataframe(
-        history_display, 
-        use_container_width=True,
+        history_display[cols_to_show].set_index("Date"),
+        width='stretch',
         column_config={
-            **{p: st.column_config.NumberColumn(p, format="$%d") for p in players}
+            **{p: st.column_config.NumberColumn(p, width="small", format="$%d") for p in players},
+            "Remark": st.column_config.TextColumn("備註", width="medium")
         }
     )
 
-    # --- 3. 最近備註 (如有 Remark 欄位) ---
-    if 'Remark' in df_master.columns:
-        st.divider()
-        st.subheader("💬 最近對局摘要")
-        recent_remarks = df_master[['Date', 'Remark']].sort_values(by='Date', ascending=False).head(10)
-        recent_remarks['Date'] = recent_remarks['Date'].dt.strftime('%Y/%m/%d')
-        st.table(recent_remarks.set_index('Date'))
+    # --- 3. 年度小獎項 (iPhone 趣味版) ---
+    st.divider()
+    st.subheader("🏆 年度之最")
+    current_year = datetime.now().year
+    this_year_data = df_yearly[df_yearly['Year'] == current_year]
+    
+    if not this_year_data.empty:
+        c1, c2 = st.columns(2)
+        with c1:
+            big_winner = this_year_data[players].sum().idxmax()
+            st.metric("年度金主", big_winner, f"👑")
+        with c2:
+            # 搵出單場最高分
+            max_single = this_year_data[players].max().max()
+            lucky_guy = this_year_data[players].max().idxmax()
+            st.metric("最強單局", lucky_guy, f"${max_single:,.0f}")
