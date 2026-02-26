@@ -17,8 +17,11 @@ st.set_page_config(
 )
 
 # --- 2. Constants & Global Config ---
-SHEET_URL = f"https://docs.google.com/spreadsheets/d/12rjgnWh2gMQ05TsFR6aCCn7QXB6rpa-Ylb0ma4Cs3E4/edit?gid=2131114078#gid=2131114078"
+SHEET_ID = "12rjgnWh2gMQ05TsFR6aCCn7QXB6rpa-Ylb0ma4Cs3E4"
+GID = "2131114078" 
+SHEET_URL = f"https://docs.google.com/spreadsheets/d/{SHEET_ID}/export?format=csv&gid={GID}"
 
+# 這個變數只用來在程式內部參考，不要傳進網址
 MASTER_SHEET = "Master Record"
 PLAYERS = ["Martin", "Lok", "Stephen", "Fongka"]
 
