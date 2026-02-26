@@ -22,14 +22,17 @@ def get_base_money(fan):
     return fan_map.get(fan, 256 if fan > 10 else 0)
 
 @st.cache_data(ttl=5)
-def load_master_data(spreadsheet_url, worksheet_name, players):
-    # 使用 Streamlit 原生連線讀取數據
-    conn = st.connection("gsheets", type=GSheetsConnection)
-    df = conn.read(spreadsheet=spreadsheet_url, worksheet=worksheet_name).dropna(how='all')
-    
-    # 轉 Date 時建議加 format='mixed' 防止報錯
-    df['Date'] = pd.to_datetime(df['Date'], format='mixed')
-    
-    for p in players:
-        df[p] = pd.to_numeric(df[p], errors='coerce').fillna(0)
-    return df
+def load_master_data(url, sheet_name, players):
+    # 直接使用傳入的 url，不要再手動拼接 &gid=...
+    # 因為我們在 app.py 已經定義好正確的純數字 GID URL 了
+    try:
+        df = pd.read_csv(url)
+        
+        # 確保 Date 欄位轉換為日期格式
+        if 'Date' in df.columns:
+            df['Date'] = pd.to_datetime(df['Date'])
+            
+        return df
+    except Exception as e:
+        print(f"Error loading data: {e}")
+        return pd.DataFrame()
