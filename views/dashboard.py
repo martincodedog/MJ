@@ -3,87 +3,108 @@ import pandas as pd
 import numpy as np
 
 def show_dashboard(df_master, players):
-    st.markdown("<h2 style='text-align: center;'>📊 戰績深度分析</h2>", unsafe_allow_html=True)
+    st.markdown("<h2 style='text-align: center; color: #1C2833;'>📊 雀壇全方位量化數據儀表板</h2>", unsafe_allow_html=True)
     
     if df_master.empty:
-        st.warning("目前尚無數據。")
+        st.warning("查無數據，請先輸入對局紀錄。")
         return
 
-    # --- 1. 最近對局戰績 (加大字體) ---
-    st.subheader("🏁 最近對局戰績")
-    last_row = df_master.iloc[-1]
-    m_cols = st.columns(2)
-    for i, p in enumerate(players):
-        val = last_row[p]
-        color = "#1e8e3e" if val > 0 else "#d93025" if val < 0 else "#5f6368"
-        with m_cols[i % 2]:
-            st.markdown(f"""
-                <div style="background-color:#f8f9fa; padding:15px 10px; border-radius:15px; border-left:8px solid {color}; margin-bottom:12px; box-shadow: 2px 2px 5px rgba(0,0,0,0.03);">
-                    <p style="margin:0; font-size:14px; color:#555; font-weight:bold;">{p}</p>
-                    <p style="margin:2px 0 0 0; font-size:28px; font-weight:900; color:{color}; line-height:1;">{int(val):+d}</p>
-                </div>
-            """, unsafe_allow_html=True)
-    st.caption(f"📅 紀錄日期：{last_row['Date']}")
-    st.divider()
-
-    # --- 2. 累積資產走勢 ---
-    st.subheader("📈 累計財富走勢")
-    df_trend = df_master.copy()
-    df_trend = df_trend.set_index('Date')[players].cumsum()
-    st.line_chart(df_trend, height=300)
-    st.divider()
-
-    # --- 3. 核心數據統計 ---
-    st.subheader("📉 全方位數據摘要")
-    stats_dict = {}
-    for p in players:
-        data = df_master[p]
-        stats_dict[p] = {
-            "總分": data.sum(),
-            "平均": data.mean(),
-            "標準差": data.std(),
-            "勝率%": (data > 0).sum() / len(data) * 100,
-            "波動": data.max() - data.min()
-        }
-    stats_df = pd.DataFrame(stats_dict).T
-    # 表格字體相對固定，但用加闊模式
-    st.dataframe(stats_df.style.format(precision=0), use_container_width=True)
+    # --- 1. 全方位數據摘要 (指標為行，玩家為列) ---
+    st.subheader("📋 全方位量化數據摘要 (Indicators Matrix)")
     
-    with st.expander("ℹ️ 數據計算說明"):
-        st.markdown("基於 Master Record 每日總計：波動區間 (Max-Min)、標準差 (穩定度)、勝率 (贏錢天數%)。")
-    st.divider()
-
-    # --- 4. 🔮 下局風向預測 (特大字體卡片) ---
-    st.subheader("🔮 下局風向預測")
-    predict_cols = st.columns(2)
-    for i, p in enumerate(players):
-        data = df_master[p]
-        avg = data.mean()
-        std = data.std() if not pd.isna(data.std()) else 0
-        recent_trend = data.tail(3).mean()
+    summary_data = {}
+    min_periods = 5 
+    
+    for p in players:
+        # 基礎數據與轉換
+        series = pd.to_numeric(df_master[p], errors='coerce').fillna(0)
+        price_series = series.cumsum()
+        wins = series[series > 0]
+        losses = series[series < 0]
         
-        ev = (avg * 0.7) + (recent_trend * 0.3)
-        lower_bound = ev - std
-        upper_bound = ev + std
+        # --- A. 原有技術指標 ---
+        # RSI
+        delta = series
+        gain = (delta.where(delta > 0, 0)).rolling(window=min_periods, min_periods=1).mean()
+        loss = (-delta.where(delta < 0, 0)).rolling(window=min_periods, min_periods=1).mean()
+        rs = gain / loss
+        rsi = (100 - (100 / (1 + rs))).iloc[-1]
         
-        with predict_cols[i % 2]:
-            color = "#1e8e3e" if ev > 0 else "#d93025"
-            st.markdown(f"""
-                <div style="background-color:#ffffff; border:1px solid #eee; padding:15px; border-radius:18px; margin-bottom:15px; box-shadow: 0 4px 6px rgba(0,0,0,0.07); text-align:center;">
-                    <p style="margin:0; font-size:16px; font-weight:bold; color:#333;">{p}</p>
-                    <hr style="margin:10px 0; border:0; border-top:1px solid #eee;">
-                    <p style="margin:0; font-size:12px; color:#888; text-transform:uppercase;">Expected Value</p>
-                    <p style="margin:2px 0; font-size:32px; font-weight:900; color:{color};">{int(ev):+d}</p>
-                    <div style="background-color:#f0f2f6; border-radius:10px; padding:5px; margin-top:10px;">
-                        <p style="margin:0; font-size:11px; color:#666;">預測落點</p>
-                        <p style="margin:0; font-size:15px; font-weight:bold; color:#333;">{int(lower_bound)} ~ {int(upper_bound)}</p>
-                    </div>
-                </div>
-            """, unsafe_allow_html=True)
+        # MACD
+        ema12 = price_series.ewm(span=12, adjust=False).mean()
+        ema26 = price_series.ewm(span=26, adjust=False).mean()
+        macd = (ema12 - ema26).iloc[-1]
 
-    # --- 5. 邏輯說明 ---
-    with st.expander("🧠 預測邏輯與期望值說明"):
+        # --- B. 新增 5 個專業計量指標 ---
+        # 1. 勝率 (Win Rate %): 正分局數 / 總局數
+        win_rate = (len(wins) / len(series)) * 100 if len(series) > 0 else 0
+        
+        # 2. 最大回撤 (Max Drawdown): 資本從峰值跌落的最慘幅度
+        running_max = price_series.cummax()
+        drawdown = price_series - running_max
+        mdd = drawdown.min()
+        
+        # 3. 盈虧比 (Profit/Loss Ratio): 平均贏分 / 平均輸分
+        avg_win = wins.mean() if not wins.empty else 0
+        avg_loss = abs(losses.mean()) if not losses.empty else 1
+        pl_ratio = avg_win / avg_loss
+        
+        # 4. 夏普比率 (Sharpe Ratio): 單位風險下的超額回報
+        sigma = series.std()
+        avg_ret = series.mean()
+        sharpe = (avg_ret / sigma) if sigma > 0 else 0
+        
+        # 5. 凱利準則 (Kelly Criterion %): 建議投入的倉位比例（反映獲利優勢）
+        # 公式: K% = W - [(1-W) / R], W=勝率, R=盈虧比
+        w_p = win_rate / 100
+        kelly = (w_p - ((1 - w_p) / pl_ratio)) * 100 if pl_ratio > 0 else 0
+        
+        # 彙整所有指標
+        summary_data[p] = {
+            "RSI 動能趨勢": f"{rsi:.1f}",
+            "MACD 動量": f"{macd:.1f}",
+            "勝率 (Win Rate)": f"{win_rate:.1f}%",
+            "最大回撤 (MDD)": f"{mdd:.0f}",
+            "盈虧比 (P/L Ratio)": f"{pl_ratio:.2f}",
+            "夏普比率 (Sharpe)": f"{sharpe:.2f}",
+            "波動率 (Sigma σ)": f"{sigma:.1f}",
+            "凱利建議倉位 %": f"{max(0, kelly):.1f}%"
+        }
+
+    # 轉置 DataFrame：指標變為行，玩家變為列
+    df_summary = pd.DataFrame(summary_data)
+    
+    # 顯示全方位摘要表
+    st.table(df_summary)
+
+    # --- 2. 補充視覺化圖表 ---
+    st.markdown("---")
+    st.subheader("📈 策略風險與回報分析")
+    
+    # 展示盈虧比與勝率的對比分佈 (Image Placeholder for concept)
+    # 
+
+    col_chart1, col_chart2 = st.columns(2)
+    
+    with col_chart1:
+        st.write("💰 累積資本曲線")
+        df_cumulative = df_master[players].cumsum()
+        st.line_chart(df_cumulative)
+        
+    with col_chart2:
+        st.write("📊 波動率 (σ) 與 盈虧比 (R) 對比")
+        # 簡單展示波動數據
+        vol_data = pd.DataFrame({
+            "玩家": players,
+            "波動率": [float(summary_data[p]["波動率 (Sigma σ)"]) for p in players]
+        }).set_index("玩家")
+        st.bar_chart(vol_data)
+
+    # --- 3. 指標小科普 ---
+    with st.expander("📚 新增指標財經解讀"):
         st.markdown("""
-        1. **期望值 (EV)**: 結合 70% 歷史平均 + 30% 近期走勢。
-        2. **預測區間**: 根據**常態分佈**，約 68% 機率落入此範圍。
+        * **最大回撤 (MDD)**: 衡量該玩家最長「連輸期」的資本損失程度。
+        * **盈虧比 (P/L Ratio)**: 反映「贏大錢、輸小錢」的能力。比例 > 1 代表贏面期望值高。
+        * **夏普比率 (Sharpe)**: 核心指標。數值越高，代表獲利愈不依賴運氣，而是穩定的技術輸出。
+        * **凱利準則 (Kelly Criterion)**: 計算在當前勝率與盈虧比下，最科學的「下注比例」。若為 0% 代表該策略目前無優勢。
         """)
