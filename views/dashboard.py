@@ -1,8 +1,9 @@
 import streamlit as st
 import pandas as pd
+import numpy as np
 
 def show_dashboard(df_master, players):
-    st.markdown("<h2 style='text-align: center;'>📊 戰績分析中心</h2>", unsafe_allow_html=True)
+    st.markdown("<h2 style='text-align: center;'>📊 戰績深度分析</h2>", unsafe_allow_html=True)
     
     if df_master.empty:
         st.warning("目前尚無數據，請先到快速計分錄入紀錄。")
@@ -11,9 +12,6 @@ def show_dashboard(df_master, players):
     # --- 1. 最近對局戰績 (Last Match Day) ---
     st.subheader("🏁 最近對局戰績")
     last_row = df_master.iloc[-1]
-    last_date = last_row['Date']
-    
-    # 2x2 佈局顯示最近分數，字體調大方便 iPhone 閱讀
     m_cols = st.columns(2)
     for i, p in enumerate(players):
         val = last_row[p]
@@ -25,58 +23,81 @@ def show_dashboard(df_master, players):
                     <p style="margin:2px 0 0 0; font-size:22px; font-weight:900; color:{color};">{int(val):+d}</p>
                 </div>
             """, unsafe_allow_html=True)
-    st.caption(f"📅 最近紀錄日期：{last_date}")
+    st.caption(f"📅 紀錄日期：{last_row['Date']}")
     st.divider()
 
-    # --- 2. 累積資產走勢 (原生 Line Chart) ---
+    # --- 2. 累積資產走勢 ---
     st.subheader("📈 累計財富走勢")
-    
-    # 準備累計數據
-    df_trend = df_master.copy()
-    # 確保 Date 是 index 方便圖表顯示日期軸
-    df_trend = df_trend.set_index('Date')[players].cumsum()
-    
-    # 使用 Streamlit 原生圖表，自動適應手機闊度
+    df_trend = df_master.set_index('Date')[players].cumsum()
     st.line_chart(df_trend, height=300)
     st.divider()
 
-    # --- 3. 數據統計摘要 (Summary Stats) ---
-    st.subheader("📉 核心數據統計")
+    # --- 3. 核心數據統計 (加強版) ---
+    st.subheader("📉 全方位數據摘要")
     
-    # 計算各項指標
-    stats = pd.DataFrame({
-        "總分": df_master[players].sum(),
-        "平均": df_master[players].mean(),
-        "最高": df_master[players].max(),
-        "最低": df_master[players].min(),
-        "波動區間": df_master[players].max() - df_master[players].min(),
-        "勝率 (%)": (df_master[players] > 0).sum() / len(df_master) * 100
-    }).T
+    # 計算進階統計指標
+    summary_dict = {
+        "總累積積分": df_master[players].sum(),
+        "平均單日表現": df_master[players].mean(),
+        "單日最高紀錄": df_master[players].max(),
+        "單日最低紀錄": df_master[players].min(),
+        "波動區間 (Max-Min)": df_master[players].max() - df_master[players].min(),
+        "標準差 (穩定度)": df_master[players].std(),
+        "勝率 (贏錢天數%)": (df_master[players] > 0).sum() / len(df_master) * 100,
+        "連勝/連敗次數": None # 邏輯較複雜可後補，目前先放核心指標
+    }
     
-    # 使用 dataframe 顯示表格，關閉 index 以節省空間
+    # 建立表格並美化
+    stats_df = pd.DataFrame(summary_dict).T
     st.dataframe(
-        stats.style.format("{:.0f}"),
+        stats_df.style.format(precision=0, na_rep='-'),
         use_container_width=True
     )
+    
+    with st.expander("ℹ️ 如何解讀這些指標？"):
+        st.markdown("""
+        * **標準差 (Standard Deviation)**: 數值越小，代表表現越穩定；數值越大，代表該玩家是「神鬼莫測」的爆發型選手。
+        * **波動區間**: 反映該玩家單日戰績的最極端範圍。
+        * **平均單日表現**: 長期而言，該玩家每次開枱平均會帶走（或留下）多少錢。
+        """)
 
-    # --- 4. 數據計算說明 (Markdown Note) ---
-    st.write("")
-    with st.expander("ℹ️ 數據計算說明 (Summary Stats Logic)"):
-        st.markdown(f"""
-        本系統之統計指標均基於 **Master Record** 內之每日總計數據：
+    st.divider()
+
+    # --- 4. 下局預測 (Next Game Predict) ---
+    st.subheader("🔮 下局風向預測")
+    
+    # 簡單預測邏輯：結合近期勢頭 (Momentum) 同 均值回歸 (Mean Reversion)
+    prediction_results = []
+    
+    for p in players:
+        recent_scores = df_master[p].tail(3).tolist() # 攞最近三場
+        avg_score = df_master[p].mean()
+        last_score = recent_scores[-1]
         
-        * **波動區間 (Volatility Range)**: 
-            * `計算公式：最高分 (Max) - 最低分 (Min)`
-            * **意義**：反映表現的穩定性。區間越大，代表該玩家戰績起伏較大（俗稱「大進大出」）。
-        * **平均表現 (Average)**: 
-            * `計算公式：總分 / 總對局天數`
-            * **意義**：反映長期戰力的平均水位。
-        * **勝率 (Win Rate %)**: 
-            * `計算公式：(贏錢天數 / 總對局天數) * 100%`
-            * **意義**：反映該玩家穩定獲利（正分收場）的機率。
-        * **最高 / 最低**: 
-            * 記錄該玩家單日戰績的巅峰與低谷。
+        # 邏輯 A: 近期勢頭 (Momentum) - 最近三場都係正/負
+        momentum = "🔥 氣勢如虹" if all(x > 0 for x in recent_scores) else "❄️ 運勢低迷" if all(x < 0 for x in recent_scores) else "⚖️ 狀態平穩"
         
-        ---
-        *備註：波動區間與打法風向有關，數值僅供參考，不代表絕對技術水準。*
+        # 邏輯 B: 均值回歸 (Mean Reversion) - 輸得多會贏返
+        if last_score < -200: 
+            advice = "反彈機會大"
+        elif last_score > 200:
+            advice = "居安思危"
+        else:
+            advice = "隨緣發揮"
+            
+        prediction_results.append({"玩家": p, "當前勢頭": momentum, "分析建議": advice})
+
+    # 顯示預測卡片
+    p_cols = st.columns(2)
+    for i, res in enumerate(prediction_results):
+        with p_cols[i % 2]:
+            st.info(f"**{res['玩家']}**\n\n{res['當前勢頭']}\n\n💡 {res['分析建議']}")
+
+    with st.expander("🧠 預測邏輯說明"):
+        st.markdown("""
+        預測結果由以下簡易演算法得出：
+        1. **近期勢頭 (Momentum)**: 觀察最近 3 場的表現。若連續 3 場獲利，判定為「氣勢如虹」；連續 3 場虧損，則為「運勢低迷」。
+        2. **均值回歸 (Mean Reversion)**: 根據「數極必反」原則。若上局虧損極大，則系統判定下局「反彈」機率上升；反之，若上局大勝，則建議「居安思危」。
+        
+        *注意：麻雀始終涉及隨機性與技術，預測僅供娛樂參考。*
         """)
