@@ -3,13 +3,13 @@ import pandas as pd
 import numpy as np
 
 def show_dashboard(df_master, players):
-    st.markdown("<h2 style='text-align: center;'>📊 戰績深度分析</h2>", unsafe_allow_html=True)
+    st.markdown("<h2 style='text-align: center;'>📊 戰績深度分析中心</h2>", unsafe_allow_html=True)
     
     if df_master.empty:
         st.warning("目前尚無數據，請先到快速計分錄入紀錄。")
         return
 
-    # --- 1. 最近對局戰績 (Last Match Day) ---
+    # --- 1. 最近對局戰績 (Last Match Day Points) ---
     st.subheader("🏁 最近對局戰績")
     last_row = df_master.iloc[-1]
     m_cols = st.columns(2)
@@ -26,78 +26,95 @@ def show_dashboard(df_master, players):
     st.caption(f"📅 紀錄日期：{last_row['Date']}")
     st.divider()
 
-    # --- 2. 累積資產走勢 ---
+    # --- 2. 累積資產走勢 (Cumulative Trend) ---
     st.subheader("📈 累計財富走勢")
-    df_trend = df_master.set_index('Date')[players].cumsum()
+    df_trend = df_master.copy()
+    df_trend = df_trend.set_index('Date')[players].cumsum()
     st.line_chart(df_trend, height=300)
     st.divider()
 
-    # --- 3. 核心數據統計 (加強版) ---
+    # --- 3. 核心數據統計 (All Summary Stats) ---
     st.subheader("📉 全方位數據摘要")
     
-    # 計算進階統計指標
-    summary_dict = {
-        "總累積積分": df_master[players].sum(),
-        "平均單日表現": df_master[players].mean(),
-        "單日最高紀錄": df_master[players].max(),
-        "單日最低紀錄": df_master[players].min(),
-        "波動區間 (Max-Min)": df_master[players].max() - df_master[players].min(),
-        "標準差 (穩定度)": df_master[players].std(),
-        "勝率 (贏錢天數%)": (df_master[players] > 0).sum() / len(df_master) * 100,
-        "連勝/連敗次數": None # 邏輯較複雜可後補，目前先放核心指標
-    }
+    stats_dict = {}
+    for p in players:
+        data = df_master[p]
+        stats_dict[p] = {
+            "總累積積分": data.sum(),
+            "平均單日表現": data.mean(),
+            "單日最高紀錄": data.max(),
+            "單日最低紀錄": data.min(),
+            "波動區間 (Range)": data.max() - data.min(),
+            "標準差 (穩定度)": data.std(),
+            "勝率 (%)": (data > 0).sum() / len(data) * 100
+        }
     
-    # 建立表格並美化
-    stats_df = pd.DataFrame(summary_dict).T
-    st.dataframe(
-        stats_df.style.format(precision=0, na_rep='-'),
-        use_container_width=True
-    )
+    stats_df = pd.DataFrame(stats_dict).T
+    st.dataframe(stats_df.style.format(precision=0), use_container_width=True)
     
-    with st.expander("ℹ️ 如何解讀這些指標？"):
+    with st.expander("ℹ️ 數據計算說明 (Summary Stats Logic)"):
         st.markdown("""
-        * **標準差 (Standard Deviation)**: 數值越小，代表表現越穩定；數值越大，代表該玩家是「神鬼莫測」的爆發型選手。
-        * **波動區間**: 反映該玩家單日戰績的最極端範圍。
-        * **平均單日表現**: 長期而言，該玩家每次開枱平均會帶走（或留下）多少錢。
+        本系統之統計指標均基於 **Master Record** 內之每日總計數據：
+        
+        * **波動區間 (Volatility Range)**: 
+            * `計算公式：最高分 (Max) - 最低分 (Min)`
+            * **意義**：反映表現的穩定性。區間越大，代表該玩家戰績起伏較大（俗稱「大進大出」）。
+        * **標準差 (Standard Deviation)**: 
+            * 反映分數偏離平均值的程度。數值越小，代表表現越穩定；數值越大，代表該玩家是爆發型選手。
+        * **勝率 (Win Rate %)**: 
+            * `計算公式：(贏錢天數 / 總對局天數) * 100%`
+            * **意義**：反映該玩家穩定獲利（正分收場）的機率。
         """)
-
     st.divider()
 
-    # --- 4. 下局預測 (Next Game Predict) ---
+    # --- 4. 🔮 下局風向預測 (EV & Predicted Range) ---
     st.subheader("🔮 下局風向預測")
     
-    # 簡單預測邏輯：結合近期勢頭 (Momentum) 同 均值回歸 (Mean Reversion)
-    prediction_results = []
-    
-    for p in players:
-        recent_scores = df_master[p].tail(3).tolist() # 攞最近三場
-        avg_score = df_master[p].mean()
-        last_score = recent_scores[-1]
+    predict_cols = st.columns(2)
+    for i, p in enumerate(players):
+        data = df_master[p]
+        avg = data.mean()
+        std = data.std() if not pd.isna(data.std()) else 0
+        recent_trend = data.tail(3).mean() # 最近三場平均
         
-        # 邏輯 A: 近期勢頭 (Momentum) - 最近三場都係正/負
-        momentum = "🔥 氣勢如虹" if all(x > 0 for x in recent_scores) else "❄️ 運勢低迷" if all(x < 0 for x in recent_scores) else "⚖️ 狀態平穩"
+        # 期望值 (EV): 70% 歷史平均 + 30% 近期趨勢
+        ev = (avg * 0.7) + (recent_trend * 0.3)
         
-        # 邏輯 B: 均值回歸 (Mean Reversion) - 輸得多會贏返
-        if last_score < -200: 
-            advice = "反彈機會大"
-        elif last_score > 200:
-            advice = "居安思危"
-        else:
-            advice = "隨緣發揮"
-            
-        prediction_results.append({"玩家": p, "當前勢頭": momentum, "分析建議": advice})
+        # 預測區間: EV +/- 1個標準差 (約 68% 置信區間)
+        lower_bound = ev - std
+        upper_bound = ev + std
+        
+        with predict_cols[i % 2]:
+            color = "#1e8e3e" if ev > 0 else "#d93025"
+            st.markdown(f"""
+                <div style="background-color:#ffffff; border:1px solid #ddd; padding:12px; border-radius:15px; margin-bottom:15px; box-shadow: 2px 2px 5px rgba(0,0,0,0.05);">
+                    <p style="margin:0; font-size:14px; font-weight:bold; color:#333;">{p}</p>
+                    <hr style="margin:8px 0;">
+                    <p style="margin:0; font-size:11px; color:#666;">下局期望值 (EV)</p>
+                    <p style="margin:0; font-size:22px; font-weight:900; color:{color};">{int(ev):+d}</p>
+                    <p style="margin:10px 0 0 0; font-size:11px; color:#666;">預測落點區間</p>
+                    <p style="margin:0; font-size:13px; font-weight:bold; color:#444;">
+                        {int(lower_bound)} ~ {int(upper_bound)}
+                    </p>
+                </div>
+            """, unsafe_allow_html=True)
 
-    # 顯示預測卡片
-    p_cols = st.columns(2)
-    for i, res in enumerate(prediction_results):
-        with p_cols[i % 2]:
-            st.info(f"**{res['玩家']}**\n\n{res['當前勢頭']}\n\n💡 {res['分析建議']}")
-
-    with st.expander("🧠 預測邏輯說明"):
-        st.markdown("""
-        預測結果由以下簡易演算法得出：
-        1. **近期勢頭 (Momentum)**: 觀察最近 3 場的表現。若連續 3 場獲利，判定為「氣勢如虹」；連續 3 場虧損，則為「運勢低迷」。
-        2. **均值回歸 (Mean Reversion)**: 根據「數極必反」原則。若上局虧損極大，則系統判定下局「反彈」機率上升；反之，若上局大勝，則建議「居安思危」。
+    # --- 5. 預測邏輯說明 ---
+    with st.expander("🧠 預測邏輯與期望值說明"):
+        st.markdown(f"""
+        ### 如何理解預測數據？
         
-        *注意：麻雀始終涉及隨機性與技術，預測僅供娛樂參考。*
+        1. **期望值 (Expected Value, EV)**:
+           * 公式：$EV = (\mu \times 0.7) + (M_{{recent}} \times 0.3)$
+           * 我們結合了**長期平均表現 ($\mu$)** 與**近期勢頭 ($M_{{recent}}$)**。
+           * 若 $EV > 0$，代表數據面支持你下局獲利。
+
+        2. **預測區間 (Predicted Range)**:
+           * 根據統計學的**常態分佈 (Normal Distribution)** 原則，約有 **68%** 的對局分數會落在平均值正負一個**標準差 ($\sigma$)** 的範圍內。
+           * 區間愈闊，代表該玩家打法愈激進，勝負手較大。
         """)
+        
+        st.write("---")
+        st.markdown("##### [常態分佈參考圖]")
+        
+        st.caption("註：數據僅供娛樂參考，打牌運氣與心態是無法數據化的。")
