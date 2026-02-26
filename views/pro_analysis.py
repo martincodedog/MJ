@@ -2,7 +2,7 @@ import streamlit as st
 import pandas as pd
 
 def show_pro_analysis(df_master, players):
-    st.markdown("<h2 style='text-align: center;'>🧠 Gemini 雀神進階建模</h2>", unsafe_allow_html=True)
+    st.markdown("<h2 style='text-align: center;'>🧠雀神進階建模</h2>", unsafe_allow_html=True)
     
     if len(df_master) < 3:
         st.warning("📊 樣本容量不足以啟動 AI 建模。請累積至少 3 場對局數據。")
