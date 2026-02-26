@@ -25,7 +25,7 @@ def show_calculator(players):
         except Exception as e:
             st.error(f"自動開 Tab 失敗: {e}")
 
-    # --- 2. 顯示今日累計 Summary (置頂，方便對數) ---
+    # --- 2. 顯示今日累計 Summary ---
     df_today = pd.DataFrame()
     try:
         df_today = conn.read(spreadsheet=SHEET_URL, worksheet=today_tab_name, ttl=0)
@@ -43,34 +43,56 @@ def show_calculator(players):
                     </div>
                 """, unsafe_allow_html=True)
     except:
-        st.info(f"🐣 今日尚未有紀錄 ({today_tab_name})")
+        st.info(f"🐣 今日尚未有紀錄")
 
     st.divider()
 
-    # --- 3. 錄入界面 (移至上方) ---
-    winner = st.selectbox("🏆 誰贏了？", players)
-    mode = st.radio("🎲 方式", ["出統", "自摸", "包自摸"], horizontal=True)
+    # --- 3. 錄入界面 (Box Selection) ---
     
-    if mode in ["出統", "包自摸"]:
-        loser = st.selectbox("💸 誰付錢？", [p for p in players if p != winner])
-    else:
-        loser = "三家"
+    # A. 誰贏了
+    st.markdown("🏆 **誰贏了？**")
+    winner = st.segmented_control(
+        "Winner Select", 
+        players, 
+        label_visibility="collapsed",
+        selection_mode="single",
+        default=players[0],
+        key="winner_box"
+    )
+
+    # B. 贏牌方式
+    mode = st.radio("🎲 **方式**", ["出統", "自摸", "包自摸"], horizontal=True)
+    
+    # C. 誰付錢 (如果是出統或包自摸才顯示)
+    loser = "三家"
+    if mode in ["出統", "包自筆", "包自摸"]:
+        st.markdown("💸 **誰付錢？**")
+        potential_losers = [p for p in players if p != winner]
+        loser = st.segmented_control(
+            "Loser Select", 
+            potential_losers, 
+            label_visibility="collapsed",
+            selection_mode="single",
+            default=potential_losers[0],
+            key="loser_box"
+        )
         
-    fan = st.select_slider("🔥 翻數", options=list(range(3, 11)), value=3)
+    # D. 翻數
+    fan = st.select_slider("🔥 **翻數**", options=list(range(3, 11)), value=3)
     
-    # 計算分數
+    # --- 計算分數 ---
     base = get_base_money(fan)
     res = {p: 0 for p in players}
     if mode == "出統":
         res[winner], res[loser] = base, -base
     elif mode == "包自摸":
         res[winner], res[loser] = base * 3, -(base * 3)
-    else:
+    else: # 自摸
         res[winner] = base * 3
         for p in players:
             if p != winner: res[p] = -base
 
-    # --- 4. 變動預覽 (字體放大) ---
+    # --- 4. 變動預覽 ---
     st.markdown("#### ⚡ 變動預覽")
     p_cols = st.columns(4)
     for i, p in enumerate(players):
@@ -96,7 +118,6 @@ def show_calculator(players):
             }
             new_entry.update(res)
             try:
-                # 重新讀取今日 Tab 並追加
                 try:
                     df_curr = conn.read(spreadsheet=SHEET_URL, worksheet=today_tab_name, ttl=0)
                     updated_df = pd.concat([df_curr, pd.DataFrame([new_entry])], ignore_index=True)
@@ -105,18 +126,15 @@ def show_calculator(players):
                 
                 conn.update(spreadsheet=SHEET_URL, worksheet=today_tab_name, data=updated_df)
                 st.success(f"✅ 已存入 {today_tab_name}")
-                st.rerun() # 這會刷新頁面，從而更新頂部的「今日累計」
+                st.rerun()
             except Exception as e:
                 st.error(f"寫入失敗: {e}")
 
-    st.write("")
     st.divider()
 
-    # --- 5. 同步至總表與歷史清單 (移至下方) ---
+    # --- 5. 管理數據區塊 ---
     if not df_today.empty:
         st.markdown("#### ⚙️ 管理今日數據")
-        
-        # 查看歷史清單 (與刪除功能)
         with st.expander("📝 查看今日對局清單 / 撤銷", expanded=False):
             display_df = df_today.copy().sort_index(ascending=False)
             st.dataframe(
@@ -124,28 +142,21 @@ def show_calculator(players):
                 hide_index=True,
                 column_config={p: st.column_config.NumberColumn(p, format="$%d") for p in players}
             )
-            
             if st.button("🗑️ 撤銷最後一局 (Undo)", width='stretch'):
-                with st.spinner('正在刪除...'):
-                    updated_df = df_today.drop(df_today.index[-1])
-                    conn.update(spreadsheet=SHEET_URL, worksheet=today_tab_name, data=updated_df)
-                    st.toast("已刪除最後一筆紀錄")
-                    st.rerun() # 刷新後「今日累計」會自動重算
+                updated_df = df_today.drop(df_today.index[-1])
+                conn.update(spreadsheet=SHEET_URL, worksheet=today_tab_name, data=updated_df)
+                st.toast("已刪除最後一筆紀錄")
+                st.rerun()
 
-        # 同步按鈕
         if st.button("🔄 同步今日總計至 Master Record (覆蓋)", width='stretch', type="secondary"):
             today_sums = df_today[players].sum()
-            with st.spinner('正在更新 Master Record...'):
-                df_master = conn.read(spreadsheet=SHEET_URL, worksheet="Master Record", ttl=0)
-                
-                sync_entry = {"Date": today_tab_name, "Remark": f"Synced: {today_tab_name}"}
-                sync_entry.update({p: today_sums[p] for p in players})
-                
-                if not df_master.empty:
-                    df_master['Date_str'] = df_master['Date'].astype(str)
-                    df_master = df_master[df_master['Date_str'] != today_tab_name]
-                    df_master = df_master.drop(columns=['Date_str'], errors='ignore')
-                
-                updated_master = pd.concat([df_master, pd.DataFrame([sync_entry])], ignore_index=True)
-                conn.update(spreadsheet=SHEET_URL, worksheet="Master Record", data=updated_master)
-                st.success(f"✅ {today_tab_name} 已同步至總表！")
+            df_master = conn.read(spreadsheet=SHEET_URL, worksheet="Master Record", ttl=0)
+            sync_entry = {"Date": today_tab_name, "Remark": f"Synced: {today_tab_name}"}
+            sync_entry.update({p: today_sums[p] for p in players})
+            if not df_master.empty:
+                df_master['Date_str'] = df_master['Date'].astype(str)
+                df_master = df_master[df_master['Date_str'] != today_tab_name]
+                df_master = df_master.drop(columns=['Date_str'], errors='ignore')
+            updated_master = pd.concat([df_master, pd.DataFrame([sync_entry])], ignore_index=True)
+            conn.update(spreadsheet=SHEET_URL, worksheet="Master Record", data=updated_master)
+            st.success("✅ 已同步至總表！")
