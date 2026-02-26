@@ -7,11 +7,10 @@ from streamlit_gsheets import GSheetsConnection
 def show_calculator(players):
     st.markdown("<h2 style='text-align: center;'>🧮 快速計分</h2>", unsafe_allow_html=True)
     
-    # 初始化連線
     conn = st.connection("gsheets", type=GSheetsConnection)
     today_tab_name = datetime.now().strftime("%Y-%m-%d")
 
-    # --- 1. 自動檢查並建立 Tab (使用 gspread) ---
+    # --- 1. 自動檢查並建立 Tab 邏輯 ---
     def ensure_today_tab():
         try:
             gc = get_connection()
@@ -19,15 +18,14 @@ def show_calculator(players):
             try:
                 sh.worksheet(today_tab_name)
             except:
-                # 如果找不到，就開一個新 Tab 並加入 Header
                 new_ws = sh.add_worksheet(title=today_tab_name, rows="100", cols="10")
                 headers = ["Date", "Martin", "Lok", "Stephen", "Fongka", "Remark"]
                 new_ws.append_row(headers)
-                st.toast(f"✨ 已為你建立今日分頁: {today_tab_name}")
+                st.toast(f"✨ 已建立今日分頁: {today_tab_name}")
         except Exception as e:
-            st.error(f"自動建立分頁失敗，請確保 Service Account 有權限: {e}")
+            st.error(f"自動開 Tab 失敗: {e}")
 
-    # --- 2. 顯示今日累計 Summary ---
+    # --- 2. 顯示今日累計 Summary (字體放大) ---
     try:
         df_today = conn.read(spreadsheet=SHEET_URL, worksheet=today_tab_name, ttl=0)
         if not df_today.empty:
@@ -38,40 +36,57 @@ def show_calculator(players):
                 val = today_sums[p]
                 color = "#1e8e3e" if val > 0 else "#d93025" if val < 0 else "#5f6368"
                 cols[i].markdown(f"""
-                    <div style="text-align:center; background-color:#f8f9fa; padding:5px 2px; border-radius:8px; border-bottom:3px solid {color};">
-                        <p style="margin:0; font-size:10px; color:#666;">{p}</p>
-                        <p style="margin:0; font-size:14px; font-weight:bold; color:{color};">{int(val):+d}</p>
+                    <div style="text-align:center; background-color:#f8f9fa; padding:8px 2px; border-radius:8px; border-bottom:4px solid {color};">
+                        <p style="margin:0; font-size:12px; color:#666;">{p}</p>
+                        <p style="margin:0; font-size:22px; font-weight:900; color:{color}; line-height:1.2;">{int(val):+d}</p>
                     </div>
                 """, unsafe_allow_html=True)
 
-            # 同步至 Master Record
+            # --- 3. 同步至 Master Record (Overwrite 邏輯) ---
             st.write("")
-            if st.button("🔄 同步今日總計至 Master Record", width='stretch'):
-                with st.spinner('同步中...'):
+            if st.button("🔄 同步今日總計至總表 (覆蓋)", width='stretch', type="secondary"):
+                with st.spinner('正在更新 Master Record...'):
                     df_master = conn.read(spreadsheet=SHEET_URL, worksheet="Master Record", ttl=0)
-                    if not df_master.empty and today_tab_name in df_master['Date'].astype(str).values:
-                        st.error(f"❌ {today_tab_name} 已經同步過了")
-                    else:
-                        sync_entry = {"Date": today_tab_name, "Remark": "Synced Total"}
-                        sync_entry.update({p: today_sums[p] for p in players})
-                        updated_master = pd.concat([df_master, pd.DataFrame([sync_entry])], ignore_index=True)
-                        conn.update(spreadsheet=SHEET_URL, worksheet="Master Record", data=updated_master)
-                        st.success("✅ 已同步至總表")
+                    
+                    sync_entry = {"Date": today_tab_name, "Remark": f"Synced: {today_tab_name}"}
+                    sync_entry.update({p: today_sums[p] for p in players})
+                    
+                    # 檢查並覆蓋：過濾掉日期相同的舊紀錄
+                    if not df_master.empty:
+                        # 確保 Date 欄位是字串進行比對
+                        df_master['Date_str'] = df_master['Date'].astype(str)
+                        if today_tab_name in df_master['Date_str'].values:
+                            st.info("🔄 發現舊紀錄，正在覆蓋...")
+                            df_master = df_master[df_master['Date_str'] != today_tab_name]
+                        
+                        df_master = df_master.drop(columns=['Date_str'], errors='ignore')
+                    
+                    updated_master = pd.concat([df_master, pd.DataFrame([sync_entry])], ignore_index=True)
+                    conn.update(spreadsheet=SHEET_URL, worksheet="Master Record", data=updated_master)
+                    st.success(f"✅ {today_tab_name} 數據已同步/更新！")
 
-            # 最後一局與刪除
-            last_record = df_today.iloc[-1]
-            with st.expander("⏮️ 查看今日最後一局 / 刪除", expanded=False):
-                st.caption(f"{last_record['Remark']}")
-                if st.button("🗑️ 刪除此局", width='stretch'):
+            # --- 4. 查看今日所有紀錄 / 刪除 ---
+            with st.expander("📝 查看今日對局清單", expanded=False):
+                # 整理顯示用的 DataFrame
+                display_df = df_today.copy()
+                display_df = display_df.sort_index(ascending=False) # 倒序，最新在上面
+                st.dataframe(
+                    display_df[["Date"] + players], 
+                    hide_index=True,
+                    column_config={p: st.column_config.NumberColumn(p, format="$%d") for p in players}
+                )
+                
+                if st.button("🗑️ 刪除最後一局 (Undo)", width='stretch'):
                     updated_df = df_today.drop(df_today.index[-1])
                     conn.update(spreadsheet=SHEET_URL, worksheet=today_tab_name, data=updated_df)
+                    st.warning("最後一筆已刪除")
                     st.rerun()
     except:
-        st.info(f"🐣 今日尚未有紀錄，首筆提交將自動開 Tab")
+        st.info(f"🐣 今日尚未有紀錄 ({today_tab_name})")
 
     st.divider()
 
-    # --- 3. 錄入界面 ---
+    # --- 5. 錄入界面 ---
     winner = st.selectbox("🏆 誰贏了？", players)
     mode = st.radio("🎲 方式", ["出統", "自摸", "包自摸"], horizontal=True)
     loser = st.selectbox("💸 誰付錢？", [p for p in players if p != winner]) if mode != "自摸" else "三家"
@@ -88,7 +103,7 @@ def show_calculator(players):
         for p in players:
             if p != winner: res[p] = -base
 
-    # --- 4. 變動預覽 (全名) ---
+    # --- 6. 變動預覽 ---
     st.markdown("#### ⚡ 變動預覽")
     p_cols = st.columns(4)
     for i, p in enumerate(players):
@@ -97,28 +112,23 @@ def show_calculator(players):
         txt = "#1e8e3e" if val > 0 else "#d93025" if val < 0 else "#5f6368"
         with p_cols[i]:
             st.markdown(f"""
-                <div style="background-color:{bg}; border-radius:10px; padding:8px 2px; text-align:center; min-height:55px;">
-                    <p style="margin:0; font-size:10px; font-weight:bold;">{p}</p>
-                    <p style="margin:2px 0 0 0; font-size:15px; font-weight:900; color:{txt};">{val:+d}</p>
+                <div style="background-color:{bg}; border-radius:10px; padding:8px 2px; text-align:center; min-height:60px;">
+                    <p style="margin:0; font-size:11px; font-weight:bold;">{p}</p>
+                    <p style="margin:2px 0 0 0; font-size:18px; font-weight:900; color:{txt};">{val:+d}</p>
                 </div>
             """, unsafe_allow_html=True)
 
     st.write("") 
 
-    # --- 5. 提交按鈕 (觸發自動開 Tab) ---
     if st.button("🚀 確認紀錄並上傳", width='stretch', type="primary"):
         with st.spinner('正在同步...'):
-            # 提交前先確保 Tab 存在
             ensure_today_tab()
-            
             new_entry = {
                 "Date": datetime.now().strftime("%Y-%m-%d %H:%M"),
                 "Remark": f"{winner} {mode} {fan}番"
             }
             new_entry.update(res)
-
             try:
-                # 重新讀取今日 Tab 並寫入
                 try:
                     df_curr = conn.read(spreadsheet=SHEET_URL, worksheet=today_tab_name, ttl=0)
                     updated_df = pd.concat([df_curr, pd.DataFrame([new_entry])], ignore_index=True)
