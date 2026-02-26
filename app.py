@@ -17,7 +17,9 @@ st.set_page_config(
 
 # --- 2. Constants & Global Config ---
 SHEET_ID = "12rjgnWh2gMQ05TsFR6aCCn7QXB6rpa-Ylb0ma4Cs3E4"
-SHEET_URL = f"https://docs.google.com/spreadsheets/d/{SHEET_ID}/edit"
+SHEET_URL = f"https://docs.google.com/spreadsheets/d/{SHEET_ID}/export?format=csv&sheet=Master%20Record"
+MASTER_SHEET = "Master Record"
+PLAYERS = ["Martin", "Lok", "Stephen", "Fongka"]
 MASTER_SHEET = "Master Record"
 PLAYERS = ["Martin", "Lok", "Stephen", "Fongka"]
 
