@@ -31,12 +31,7 @@ def show_pro_analysis(df_master, players):
             dist_df = pd.cut(series, bins=bins, labels=labels, include_lowest=True).value_counts().sort_index()
             st.bar_chart(dist_df, color="#2E86C1", height=160)
 
-    st.info("""
-    **📝 統計指標說明：**
-    * **Mean (期望值)**：長期而言，平均每一場你能贏（或輸）的分數。
-    * **SD (標準差)**：數值越高代表打法越激進，損益上下震盪劇烈，對心理素質要求較高。
-    * **Skew (偏度)**：衡量獲利分布。**正偏 (>0)** 代表有能力胡大牌或捕捉大波段；**負偏 (<0)** 警告你平時小贏但存在一次「大爆掉」的結構性風險。
-    """)
+    st.info("**Mean**: 期望值 | **SD**: 激進程度 | **Skew**: 正偏代表具大贏潛力，負偏代表潛藏大賠風險。")
     
 
     st.divider()
@@ -50,49 +45,39 @@ def show_pro_analysis(df_master, players):
         roll_std = series.rolling(window=5).std()
         rolling_sharpe_df[p] = roll_mean / roll_std
     st.line_chart(rolling_sharpe_df.replace([np.inf, -np.inf], np.nan), height=250)
-
-    st.info("""
-    **📝 滾動夏普說明：**
-    * **意義**：衡量「每單位風險能換到的回報」。它比總分更能體現技巧的純度。
-    * **判讀**：數值越高且越平穩，代表你的獲利越依靠「技術」而非「運氣」。若數值劇烈震盪，代表近期的表現極度不穩定。
-    """)
+    st.info("衡量「技術純度」。數值越高且越平穩，代表獲利越依靠實力而非運氣。")
 
     st.divider()
 
-    # --- 3. RSI 手感強度指標 ---
+    # --- 3. [分拆] RSI 手感強度指標 ---
     st.subheader("🔥 RSI 手感強度監控 (Relative Strength Index)")
-    rsi_df = pd.DataFrame()
-    for p in players:
-        series = player_data_dict[p]
-        delta = series.diff()
-        gain = (delta.where(delta > 0, 0)).rolling(window=5).mean()
-        loss = (-delta.where(delta < 0, 0)).rolling(window=5).mean()
-        rs = gain / loss
-        rsi_df[p] = 100 - (100 / (1 + rs))
+    
+    rsi_cols = st.columns(2) # 採用 2x2 佈局顯示 4 位玩家
+    for i, p in enumerate(players):
+        with rsi_cols[i % 2]:
+            series = player_data_dict[p]
+            delta = series.diff()
+            gain = (delta.where(delta > 0, 0)).rolling(window=5).mean()
+            loss = (-delta.where(delta < 0, 0)).rolling(window=5).mean()
+            rs = gain / loss
+            rsi_val = 100 - (100 / (1 + rs))
+            
+            st.markdown(f"<p style='text-align:center; font-size:12px; font-weight:bold; color:#E74C3C;'>{p} RSI 手感</p>", unsafe_allow_html=True)
+            st.line_chart(rsi_val, height=150)
 
-    st.line_chart(rsi_df, height=250)
     
-    st.info("""
-    **📝 RSI 手感說明：**
-    * **RSI > 70 (超買/發燙)**：玩家手感極佳或運氣處於頂峰，需注意隨後的均值回歸。
-    * **RSI < 30 (超賣/冰冷)**：玩家處於連敗低潮。這時需觀察其是否進入 Tilt (情緒失控) 狀態，是戰術進攻的機會點。
-    """)
-    
+    st.info("**RSI > 70**: 手感發燙，需防回調 | **RSI < 30**: 手感冰冷，觀察是否進入情緒失控 (Tilt)。")
 
     st.divider()
 
     # --- 4. 累積資產走勢與 SMA(5) ---
     st.subheader("📈 累積資產走勢與 SMA(5)")
-    trend_cols = st.columns(len(players))
+    trend_cols = st.columns(2)
     for i, p in enumerate(players):
-        with trend_cols[i]:
+        with trend_cols[i % 2]:
             equity = player_data_dict[p].cumsum()
             df_trend = pd.DataFrame({"Equity": equity, "SMA5": equity.rolling(window=5).mean()})
-            st.line_chart(df_trend, height=150)
-            st.caption(f"{p} 累積資產與 5 日均線")
+            st.markdown(f"<p style='text-align:center; font-size:12px; font-weight:bold;'>{p} 趨勢動能</p>", unsafe_allow_html=True)
+            st.line_chart(df_trend, height=180)
 
-    st.info("""
-    **📝 趨勢動能說明：**
-    * **Equity (實線)**：你真正的財富累積路徑。
-    * **SMA5 (虛線)**：5 場移動平均線。當實線穿過虛線向上時，代表你處於**黃金交叉**，技術與運氣正處於上升趨勢。
-    """)
+    st.info("**Equity (實線)**: 財富路徑 | **SMA5 (虛線)**: 實力趨勢。實線高於虛線代表處於技術上升期。")
