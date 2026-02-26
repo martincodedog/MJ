@@ -76,39 +76,6 @@ def show_pro_analysis(df_master, players):
                 </div>
             """, unsafe_allow_html=True)
 
-    # --- 3. Gemini 深度雀評 (約 500 字地道點評) ---
-    st.divider()
-    st.subheader("🔮 Gemini 賽博戰報 (Deep Analysis)")
-    
-    last_day = df_master.iloc[-1]
-    winner = last_day[players].idxmax()
-    loser = last_day[players].idxmin()
-    win_val = int(last_day[winner])
-    loss_val = int(last_day[loser])
-
-    st.markdown(f"""
-    <div style="background-color:#0e1117; color:#FAFAFA; padding:30px; border-radius:24px; border: 1px solid #4285F4; box-shadow: 0 10px 40px rgba(0,0,0,0.3);">
-        <div style="display:flex; align-items:center; margin-bottom:20px;">
-            <div style="width:15px; height:15px; background-color:#4285F4; border-radius:50%; margin-right:12px; box-shadow:0 0 10px #4285F4;"></div>
-            <span style="font-size:20px; font-weight:bold; color:#4285F4; letter-spacing:1px;">GEMINI DEEP ANALYSIS v3.1</span>
-        </div>
-        
-        <div style="font-size:17px; line-height:1.9; font-family: 'Inter', sans-serif;">
-            <p>各位雀友，請坐低。我係 <b>Gemini</b>。讀取完今日份數據之後，我嘅後台處理器差點過熱——唔係因為運算太複雜，而係因為今日嘅對局結果實在太過「荒謬」。</p>
-            
-            <p>首先，我哋要用「國家級」嘅規格嚟賀一賀 <b>{winner}</b>。贏咗 <b>{win_val}</b> 分？呢個數字已經唔係單純嘅「手風順」，呢個直情係「物理規律嘅崩壞」。我強烈懷疑你今日係咪去咗轉運、或者你件衫入面收埋咗成打「白板」。你每一場嘅自摸機率都高到唔合理，我建議其餘三位檢查下 <b>{winner}</b> 張凳底，睇下係咪裝咗強力吸金磁鐵。贏到咁盡，你今晚唔請大家食餐龍蝦、再加個鮑魚撈飯，我驚你聽日出街會俾人喺後面指指點點，話你係雀壇嘅「冷血屠夫」。</p>
-            
-            <p>至於 <b>{loser}</b> 方面... 我真心想為你降半旗。輸咗 <b>{loss_val}</b> 分，你今日個角色好鮮明，就係<b>「雀壇慈善傳奇」</b>。每次你打出一隻牌，我就聽到你荷包入面啲銀紙喺度唱《祝君好》。你今日係咪專門嚟派錢？定係你同大家簽咗咩「積分無償讓渡協議」？你今日出銃嘅次數，已經多到連我呢個 AI 都數唔過嚟。聽我 Gemini 一句勸：下次見到 <b>{winner}</b> 坐你對家，你就話肚痛唔好打，或者直接將錢擺喺枱面然後走咗去，起碼可以慳返啲體力，留返嚟下次再派。</p>
-            
-            <p>總結今日對局，簡直係一場「單方面嘅社會實驗」。有人贏到笑，有人輸到跳。香港麻雀講求「技術、心理、手風」，但我喺你哋身上淨係睇到「亂打、衝動、同埋對命運嘅絕望」。<b>{', '.join(players)}</b>，希望下次開枱，大家可以帶返個腦上枱，唔好再將麻雀枱變成大型慈善籌款現場。</p>
-            
-            <p style="color:#4285F4; font-weight:bold; margin-top:25px; border-left:4px solid #4285F4; padding-left:15px;">
-            >>> [SYSTEM_MESSAGE]: 分析完畢。建議：贏家低調啲，輸家去拜神。
-            </p>
-        </div>
-    </div>
-    """, unsafe_allow_html=True)
-
     # 底部專業數據解釋
     with st.expander("🔬 統計學名詞解釋 (Pro Methodology)"):
         st.markdown("""
