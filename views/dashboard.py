@@ -9,102 +9,92 @@ def show_dashboard(df_master, players):
         st.warning("查無數據，請先輸入對局紀錄。")
         return
 
-    # --- 1. 全方位數據摘要 (指標為行，玩家為列) ---
-    st.subheader("📋 全方位量化數據摘要 (Indicators Matrix)")
+    # --- 1. 個人化動態指標卡 (KPI Metrics Cards) ---
+    st.subheader("🎯 即時戰力監控 (Real-time Metrics)")
+    
+    for p in players:
+        # 數據提取
+        series = pd.to_numeric(df_master[p], errors='coerce').fillna(0)
+        current_total = series.sum()
+        last_val = series.iloc[-1]
+        
+        # 動量計算 (Momentum): 近三場平均 vs 歷史平均
+        short_ma = series.tail(3).mean()
+        long_ma = series.mean()
+        momentum_idx = short_ma - long_ma
+        
+        # 下場預測 (Next Game Expected): 基於期望值與動量權重的簡單線性預測
+        # 公式：歷史平均 + (動量權重 * 0.3)
+        expected_next = long_ma + (momentum_idx * 0.3)
+
+        # UI 排版
+        with st.container():
+            st.markdown(f"#### 👤 {p}")
+            c1, c2, c3, c4 = st.columns(4)
+            
+            with c1:
+                st.metric("Current Score", f"{int(current_total)}", delta=f"{int(series.mean())} (Avg)")
+            with c2:
+                st.metric("Last Game", f"{int(last_val)}", delta=f"{int(last_val - series.iloc[-2]) if len(series)>1 else 0}")
+            with c3:
+                st.metric("Next Game Exp.", f"{expected_next:+.1f}", help="基於近期動能與歷史期望值的加權預測")
+            with c4:
+                m_label = "🔥 強勢" if momentum_idx > 10 else "🧊 轉冷" if momentum_idx < -10 else "⚖️ 平穩"
+                st.metric("Momentum", m_label, delta=f"{momentum_idx:+.1f}")
+            st.markdown("---")
+
+    # --- 2. 全方位數據摘要表格 (轉置矩陣) ---
+    st.subheader("📋 全方位量化數據矩陣 (Indicators Matrix)")
     
     summary_data = {}
     min_periods = 5 
     
     for p in players:
-        # 基礎數據與轉換
         series = pd.to_numeric(df_master[p], errors='coerce').fillna(0)
         price_series = series.cumsum()
         wins = series[series > 0]
         losses = series[series < 0]
         
-        # --- A. 原有技術指標 ---
-        # RSI
+        # 技術指標運算
         delta = series
         gain = (delta.where(delta > 0, 0)).rolling(window=min_periods, min_periods=1).mean()
         loss = (-delta.where(delta < 0, 0)).rolling(window=min_periods, min_periods=1).mean()
         rs = gain / loss
         rsi = (100 - (100 / (1 + rs))).iloc[-1]
         
-        # MACD
         ema12 = price_series.ewm(span=12, adjust=False).mean()
         ema26 = price_series.ewm(span=26, adjust=False).mean()
         macd = (ema12 - ema26).iloc[-1]
 
-        # --- B. 新增 5 個專業計量指標 ---
-        # 1. 勝率 (Win Rate %): 正分局數 / 總局數
+        # 財務與精算指標
         win_rate = (len(wins) / len(series)) * 100 if len(series) > 0 else 0
-        
-        # 2. 最大回撤 (Max Drawdown): 資本從峰值跌落的最慘幅度
         running_max = price_series.cummax()
-        drawdown = price_series - running_max
-        mdd = drawdown.min()
+        mdd = (price_series - running_max).min()
+        pl_ratio = (wins.mean() / abs(losses.mean())) if not losses.empty and losses.mean() != 0 else 0
+        sharpe = (series.mean() / series.std()) if series.std() > 0 else 0
         
-        # 3. 盈虧比 (Profit/Loss Ratio): 平均贏分 / 平均輸分
-        avg_win = wins.mean() if not wins.empty else 0
-        avg_loss = abs(losses.mean()) if not losses.empty else 1
-        pl_ratio = avg_win / avg_loss
-        
-        # 4. 夏普比率 (Sharpe Ratio): 單位風險下的超額回報
-        sigma = series.std()
-        avg_ret = series.mean()
-        sharpe = (avg_ret / sigma) if sigma > 0 else 0
-        
-        # 5. 凱利準則 (Kelly Criterion %): 建議投入的倉位比例（反映獲利優勢）
-        # 公式: K% = W - [(1-W) / R], W=勝率, R=盈虧比
-        w_p = win_rate / 100
-        kelly = (w_p - ((1 - w_p) / pl_ratio)) * 100 if pl_ratio > 0 else 0
-        
-        # 彙整所有指標
         summary_data[p] = {
-            "RSI 動能趨勢": f"{rsi:.1f}",
+            "RSI 動能": f"{rsi:.1f}",
             "MACD 動量": f"{macd:.1f}",
-            "勝率 (Win Rate)": f"{win_rate:.1f}%",
-            "最大回撤 (MDD)": f"{mdd:.0f}",
-            "盈虧比 (P/L Ratio)": f"{pl_ratio:.2f}",
-            "夏普比率 (Sharpe)": f"{sharpe:.2f}",
-            "波動率 (Sigma σ)": f"{sigma:.1f}",
-            "凱利建議倉位 %": f"{max(0, kelly):.1f}%"
+            "勝率 %": f"{win_rate:.1f}%",
+            "最大回撤 MDD": f"{mdd:.0f}",
+            "盈虧比 P/L": f"{pl_ratio:.2f}",
+            "夏普比率 Sharpe": f"{sharpe:.2f}",
+            "波動率 σ": f"{series.std():.1f}"
         }
 
-    # 轉置 DataFrame：指標變為行，玩家變為列
     df_summary = pd.DataFrame(summary_data)
-    
-    # 顯示全方位摘要表
     st.table(df_summary)
 
-    # --- 2. 補充視覺化圖表 ---
-    st.markdown("---")
-    st.subheader("📈 策略風險與回報分析")
-    
-    # 展示盈虧比與勝率的對比分佈 (Image Placeholder for concept)
-    # 
+    # --- 3. 資本曲線圖表 ---
+    st.subheader("📈 歷史資本累積曲線 (Equity Curve)")
+    df_cumulative = df_master[players].cumsum()
+    df_cumulative.index = pd.to_datetime(df_master['Date'])
+    st.line_chart(df_cumulative)
 
-    col_chart1, col_chart2 = st.columns(2)
-    
-    with col_chart1:
-        st.write("💰 累積資本曲線")
-        df_cumulative = df_master[players].cumsum()
-        st.line_chart(df_cumulative)
-        
-    with col_chart2:
-        st.write("📊 波動率 (σ) 與 盈虧比 (R) 對比")
-        # 簡單展示波動數據
-        vol_data = pd.DataFrame({
-            "玩家": players,
-            "波動率": [float(summary_data[p]["波動率 (Sigma σ)"]) for p in players]
-        }).set_index("玩家")
-        st.bar_chart(vol_data)
-
-    # --- 3. 指標小科普 ---
-    with st.expander("📚 新增指標財經解讀"):
+    with st.expander("📚 指標定義與預測邏輯"):
         st.markdown("""
-        * **最大回撤 (MDD)**: 衡量該玩家最長「連輸期」的資本損失程度。
-        * **盈虧比 (P/L Ratio)**: 反映「贏大錢、輸小錢」的能力。比例 > 1 代表贏面期望值高。
-        * **夏普比率 (Sharpe)**: 核心指標。數值越高，代表獲利愈不依賴運氣，而是穩定的技術輸出。
-        * **凱利準則 (Kelly Criterion)**: 計算在當前勝率與盈虧比下，最科學的「下注比例」。若為 0% 代表該策略目前無優勢。
+        * **Next Game Expected**: 利用資產獲利平穩性與近期動能進行建模，預測下一場對局的收益中位數。
+        * **Momentum (動量)**: 比較短期（3場）與長期（總體）平均值。若短期表現優於長期，則視為進入「🔥 強勢」上升軌道。
+        * **Sharpe Ratio**: 判斷該玩家獲利是源於純粹手風 (Volatility) 還是穩定戰術。
         """)
