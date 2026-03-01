@@ -1,8 +1,20 @@
 import streamlit as st
 from datetime import datetime
 import pandas as pd
-from utils import SHEET_URL, get_base_money, get_connection
+from utils import SHEET_URL, get_connection
 from streamlit_gsheets import GSheetsConnection
+
+def get_base_money_updated(fan):
+    """
+    根據用戶定義的番數賠率:
+    3番:16, 4番:32, 5番:48, 6番:64, 7番:96, 8番:128, 9番:192, 10番:256
+    """
+    fan_map = {
+        3: 16, 4: 32, 5: 48, 6: 64, 
+        7: 96, 8: 128, 9: 192, 10: 256
+    }
+    # 超過10番預設維持256，或可根據需求調整
+    return fan_map.get(fan, 256 if fan > 10 else 0)
 
 def show_calculator(players):
     st.markdown("<h2 style='text-align: center;'>🧮 快速計分</h2>", unsafe_allow_html=True)
@@ -10,11 +22,9 @@ def show_calculator(players):
     conn = st.connection("gsheets", type=GSheetsConnection)
     today_tab_name = datetime.now().strftime("%Y-%m-%d")
 
-    # 初始化選擇狀態
     if 'winner' not in st.session_state: st.session_state.winner = players[0]
     if 'loser' not in st.session_state: st.session_state.loser = players[1]
 
-    # --- 1. 自動檢查並建立 Tab (新增欄位定義) ---
     def ensure_today_tab():
         try:
             gc = get_connection()
@@ -22,7 +32,6 @@ def show_calculator(players):
             try:
                 sh.worksheet(today_tab_name)
             except:
-                # 定義標題列：日期, 玩家1~4, 贏家, 輸家, 方式, 番數, 備註
                 header = ["Date"] + players + ["Winner", "Loser", "Method", "Fan", "Remark"]
                 new_ws = sh.add_worksheet(title=today_tab_name, rows="500", cols="15")
                 new_ws.append_row(header)
@@ -30,7 +39,7 @@ def show_calculator(players):
         except Exception as e:
             st.error(f"自動開 Tab 失敗: {e}")
 
-    # --- 2. 今日累計 Summary (保持原樣) ---
+    # --- 1. 今日累計 Summary ---
     df_today = pd.DataFrame()
     try:
         df_today = conn.read(spreadsheet=SHEET_URL, worksheet=today_tab_name, ttl=0)
@@ -52,7 +61,7 @@ def show_calculator(players):
 
     st.divider()
 
-    # --- 3. 錄入界面 ---
+    # --- 2. 錄入界面 ---
     st.markdown("🏆 **誰贏了？**")
     w_cols = st.columns(4)
     for i, p in enumerate(players):
@@ -80,19 +89,28 @@ def show_calculator(players):
                     st.rerun()
         loser_display = st.session_state.loser
         
-    fan = st.select_slider("🔥 **翻數**", options=list(range(3, 14)), value=3)
+    fan = st.select_slider("🔥 **番數**", options=list(range(3, 14)), value=3)
     
-    # 計算得分邏輯
-    base = get_base_money(fan)
+    # --- 3. 計算得分邏輯 (Updated) ---
+    base = get_base_money_updated(fan)
     res = {p: 0 for p in players}
+    
     if mode == "出統":
-        res[st.session_state.winner], res[st.session_state.loser] = base, -base
-    elif mode == "包自摸":
-        res[st.session_state.winner], res[st.session_state.loser] = base * 3, -(base * 3)
-    else: # 自摸
-        res[st.session_state.winner] = base * 3
+        # 出統：贏家收 base，輸家付 base
+        res[st.session_state.winner] = int(base)
+        res[st.session_state.loser] = int(-base)
+    elif mode == "自摸":
+        # 自摸：三家付 base/2，贏家收 (base/2) * 3
+        each_pay = base / 2
+        res[st.session_state.winner] = int(each_pay * 3)
         for p in players:
-            if p != st.session_state.winner: res[p] = -base
+            if p != st.session_state.winner:
+                res[p] = int(-each_pay)
+    elif mode == "包自摸":
+        # 包自摸：包家付哂三家錢 (base/2 * 3)，贏家收哂
+        total_pay = (base / 2) * 3
+        res[st.session_state.winner] = int(total_pay)
+        res[st.session_state.loser] = int(-total_pay)
 
     # --- 4. 變動預覽 ---
     st.markdown("#### ⚡ 變動預覽")
@@ -108,24 +126,21 @@ def show_calculator(players):
             </div>
         """, unsafe_allow_html=True)
 
-    # --- 5. 確認上傳 (新增欄位寫入) ---
+    # --- 5. 確認上傳 ---
     if st.button("🚀 確認紀錄並上傳", use_container_width=True, type="primary"):
         with st.spinner('正在同步...'):
             ensure_today_tab()
-            
-            # 建立結構化數據
             new_entry = {
                 "Date": datetime.now().strftime("%Y-%m-%d %H:%M"),
                 "Winner": st.session_state.winner,
                 "Loser": loser_display,
                 "Method": mode,
                 "Fan": fan,
-                "Remark": f"{st.session_state.winner} {mode} {fan}番"
+                "Remark": f"{st.session_state.winner} {mode} {fan}番 ({base}底)"
             }
-            new_entry.update(res) # 合併玩家分數
+            new_entry.update(res)
             
             try:
-                # 讀取現有數據並合併
                 try:
                     df_curr = conn.read(spreadsheet=SHEET_URL, worksheet=today_tab_name, ttl=0)
                     updated_df = pd.concat([df_curr, pd.DataFrame([new_entry])], ignore_index=True)
