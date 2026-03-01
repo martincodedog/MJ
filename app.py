@@ -1,9 +1,8 @@
 import streamlit as st
 import pandas as pd
-from streamlit_gsheets import GSheetsConnection
-from utils import load_master_data, get_connection
+from utils import load_master_data, SHEET_URL # 確保 utils 有定義 SHEET_URL
 
-# --- 導入模組化頁面 ---
+# 導入模組化分頁
 from views.dashboard import show_dashboard
 from views.calculator import show_calculator
 from views.history import show_history
@@ -18,15 +17,18 @@ st.set_page_config(
 )
 
 # --- 2. 常數與全域配置 ---
+# 注意：為了配合 utils 裡的 pd.read_csv，我們必須使用 /export?format=csv 格式
 SHEET_ID = "12rjgnWh2gMQ05TsFR6aCCn7QXB6rpa-Ylb0ma4Cs3E4"
-# 這裡定義基礎 URL，供 load_master_data 使用
-SHEET_URL = f"https://docs.google.com/spreadsheets/d/{SHEET_ID}/edit"
-MASTER_SHEET = "Master Record"
+# 指定 Master Record 分頁的 GID (請確認你的 Master Record 分頁 GID 是否為 0)
+MASTER_GID = "0" 
+CSV_URL = f"https://docs.google.com/spreadsheets/d/{SHEET_ID}/export?format=csv&gid={MASTER_GID}"
+
+MASTER_SHEET_NAME = "Master Record"
 PLAYERS = ["Martin", "Lok", "Stephen", "Fongka"]
 
-# --- 3. 數據初始化 (修正點在此) ---
-# 確保傳入 3 個 positional arguments: URL, Worksheet Name, Players List
-df_master = load_master_data(SHEET_URL, MASTER_SHEET, PLAYERS)
+# --- 3. 數據初始化 ---
+# 使用你的 utils.py 函數，傳入 CSV 導出網址
+df_master = load_master_data(CSV_URL, MASTER_SHEET_NAME, PLAYERS)
 
 # --- 4. 路由狀態管理 ---
 if 'page' not in st.session_state:
@@ -38,16 +40,16 @@ with st.sidebar:
     st.info("量化麻將數據監控系統")
     st.markdown("---")
     
-    # 定義按鈕與其對應的內部標籤
-    nav_options = {
-        "📊 總體概況": "總體概況",
-        "🧮 快速計分": "快速計分",
-        "🔍 今日戰局復盤": "今日分析",
-        "🧠 專業量化分析": "專業分析",
-        "📜 歷史紀錄回顧": "歷史紀錄"
+    # 定義按鈕導覽
+    nav_items = {
+        "📊 總體概況": "dashboard",
+        "🧮 快速計分": "calculator",
+        "🔍 今日戰局復盤": "daily",
+        "🧠 專業量化分析": "pro",
+        "📜 歷史紀錄回顧": "history"
     }
 
-    for label in nav_options.keys():
+    for label in nav_items.keys():
         if st.button(label, use_container_width=True, 
                      type="primary" if st.session_state.page == label else "secondary"):
             st.session_state.page = label
@@ -55,15 +57,23 @@ with st.sidebar:
         
     st.markdown("---")
     
-    # 顯示最後更新日期 (從 df_master 提取)
+    # 顯示最後更新日期 (加上安全性檢查防止 KeyError)
     if not df_master.empty:
-        try:
-            # 轉換為日期格式以獲取最大值
-            temp_date = pd.to_datetime(df_master['Date'], errors='coerce')
-            last_date = temp_date.max().strftime('%Y-%m-%d')
-            st.caption(f"📅 數據同步至: {last_date}")
-        except:
-            st.caption(f"📅 最後紀錄: {df_master['Date'].iloc[-1]}")
+        if 'Date' in df_master.columns:
+            try:
+                # 取得最後一行日期
+                last_entry = df_master['Date'].iloc[-1]
+                # 如果是 Timestamp 物件則格式化，如果是字串則直接顯示
+                last_date_str = last_entry.strftime('%Y-%m-%d') if hasattr(last_entry, 'strftime') else str(last_entry)
+                st.caption(f"📅 數據同步至: {last_date_str}")
+            except:
+                st.caption("📅 數據已同步")
+        else:
+            st.warning("⚠️ CSV 未偵測到 Date 欄位")
+            # 偵錯用：顯示目前抓到的欄位
+            # st.write(df_master.columns)
+    else:
+        st.caption("📅 暫無歷史紀錄 (Master 為空)")
 
     st.markdown("---")
     st.write("Developed for Mahjong Masters.")
@@ -79,7 +89,7 @@ elif st.session_state.page == "🔍 今日戰局復盤":
     show_daily_analysis(PLAYERS)
 
 elif st.session_state.page == "🧠 專業量化分析":
-    # 專業量化分析需要用到長期數據 df_master 來計算 Skewness 和 Rolling Sharpe
+    # 傳入歷史數據進行 PL Ratio, Skewness, RSI 等量化計算
     show_pro_analysis(df_master, PLAYERS)
 
 elif st.session_state.page == "📜 歷史紀錄回顧":
