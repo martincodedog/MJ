@@ -25,7 +25,7 @@ PLAYERS = ["Martin", "Lok", "Stephen", "Fongka"]
 
 # --- 3. 數據初始化 ---
 # 注意：這裡 load_master_data 讀取的是長期累積的 Master Record
-df_master = load_master_data(MASTER_SHEET, PLAYERS)
+df_master = load_master_data(SHEET_URL, MASTER_SHEET, PLAYERS)
 
 # --- 4. 路由狀態管理 ---
 if 'page' not in st.session_state:
