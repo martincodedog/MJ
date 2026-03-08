@@ -14,24 +14,52 @@ def show_calculator(players):
     conn = st.connection("gsheets", type=GSheetsConnection)
     today_tab_name = datetime.now().strftime("%Y-%m-%d")
 
-    # --- 1. 自動檢查並建立 Tab (核心修復：防止 read 報錯) ---
+    # --- 1. 使用 Session State 減少 API 調用 ---
+    if 'tab_checked_today' not in st.session_state:
+        st.session_state.tab_checked_today = None
+
     def ensure_today_tab():
+        # 如果這一個 Session 已經檢查過分頁存在，直接跳過 API 調用
+        if st.session_state.tab_checked_today == today_tab_name:
+            return True
+            
         try:
             gc = get_connection()
             sh = gc.open_by_url(SHEET_URL)
             try:
                 sh.worksheet(today_tab_name)
+                st.session_state.tab_checked_today = today_tab_name
                 return True
             except:
-                # 定義標題列：日期, 玩家1~4, 贏家, 輸家, 方式, 番數, 備註
                 header = ["Date"] + players + ["Winner", "Loser", "Method", "Fan", "Remark"]
                 new_ws = sh.add_worksheet(title=today_tab_name, rows="500", cols="15")
                 new_ws.append_row(header)
+                st.session_state.tab_checked_today = today_tab_name
                 st.toast(f"✨ 已建立今日分頁: {today_tab_name}")
                 return True
         except Exception as e:
-            st.error(f"Google Sheets 連線失敗: {e}")
+            # 如果報錯 429，至少讓程式不要崩潰
+            if "429" in str(e):
+                st.error("🚨 Google API 請求太頻繁，請等 10 秒後再試。")
+            else:
+                st.error(f"Google Sheets 連線失敗: {e}")
             return False
+
+    # 執行檢查
+    tab_ready = ensure_today_tab()
+
+    # --- 2. 數據讀取 (加上緩存時間 ttl=2) ---
+    df_today = pd.DataFrame()
+    if tab_ready:
+        try:
+            # 這裡把 ttl 改為 2 秒或更高，避免每次互動都重新讀取整個試算表
+            df_today = conn.read(spreadsheet=SHEET_URL, worksheet=today_tab_name, ttl=2)
+            if not df_today.empty:
+                df_today[players] = df_today[players].apply(pd.to_numeric, errors='coerce').fillna(0)
+        except Exception:
+            df_today = pd.DataFrame(columns=["Date"] + players + ["Winner", "Loser", "Method", "Fan", "Remark"])
+
+    # ... (後續錄入與顯示邏輯保持不變)
 
     # 必須先執行 ensure，成功後才 read
     tab_ready = ensure_today_tab()
