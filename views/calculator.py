@@ -1,58 +1,72 @@
 import streamlit as st
-from datetime import datetime
 import pandas as pd
+from datetime import datetime, timedelta, timezone
 from utils import SHEET_URL, get_connection
 from streamlit_gsheets import GSheetsConnection
+
+def get_hong_kong_time():
+    """獲取當前香港時間 (UTC+8)"""
+    return datetime.now(timezone(timedelta(hours=8)))
 
 def get_base_money_updated(fan):
     fan_map = {3: 16, 4: 32, 5: 48, 6: 64, 7: 96, 8: 128, 9: 192, 10: 256}
     return fan_map.get(fan, 256 if fan > 10 else 0)
 
 def show_calculator(players):
-    st.markdown("<h2 style='text-align: center;'>🧮 快速計分</h2>", unsafe_allow_html=True)
+    st.markdown("<h2 style='text-align: center;'>🧮 快速計分 (HKT)</h2>", unsafe_allow_html=True)
+    
+    # 1. 獲取香港日期與時間
+    hk_now = get_hong_kong_time()
+    today_tab_name = hk_now.strftime("%Y-%m-%d")
     
     conn = st.connection("gsheets", type=GSheetsConnection)
-    today_tab_name = datetime.now().strftime("%Y-%m-%d")
 
-    # --- 1. 自動檢查並建立 Tab (核心修復：防止 read 報錯) ---
+    # --- 2. API 節流：使用 Session State 避免頻繁檢查 Tab ---
+    if 'last_checked_tab' not in st.session_state:
+        st.session_state.last_checked_tab = None
+
     def ensure_today_tab():
+        # 如果本回合已經確認過當天分頁，直接跳過 API 請求
+        if st.session_state.last_checked_tab == today_tab_name:
+            return True
         try:
             gc = get_connection()
             sh = gc.open_by_url(SHEET_URL)
             try:
                 sh.worksheet(today_tab_name)
+                st.session_state.last_checked_tab = today_tab_name
                 return True
             except:
-                # 定義標題列：日期, 玩家1~4, 贏家, 輸家, 方式, 番數, 備註
                 header = ["Date"] + players + ["Winner", "Loser", "Method", "Fan", "Remark"]
                 new_ws = sh.add_worksheet(title=today_tab_name, rows="500", cols="15")
                 new_ws.append_row(header)
-                st.toast(f"✨ 已建立今日分頁: {today_tab_name}")
+                st.session_state.last_checked_tab = today_tab_name
+                st.toast(f"✨ 已建立今日香港分頁: {today_tab_name}")
                 return True
         except Exception as e:
-            st.error(f"Google Sheets 連線失敗: {e}")
+            if "429" in str(e):
+                st.error("🚨 Google API 讀取太頻繁，請等候約 30 秒再試。")
+            else:
+                st.error(f"連線失敗: {e}")
             return False
 
-    # 必須先執行 ensure，成功後才 read
     tab_ready = ensure_today_tab()
 
-    # --- 2. 數據讀取 (今日紀錄) ---
+    # --- 3. 數據讀取 (加上 5 秒緩存減少 API 調用) ---
     df_today = pd.DataFrame()
     if tab_ready:
         try:
-            # 只有分頁存在時才執行 read
-            df_today = conn.read(spreadsheet=SHEET_URL, worksheet=today_tab_name, ttl=0)
-            # 清洗數據，將所有 NaN 轉為 0 方便運算
+            # ttl=5 表示 5 秒內刷新頁面不會重新請求 Google
+            df_today = conn.read(spreadsheet=SHEET_URL, worksheet=today_tab_name, ttl=5)
             if not df_today.empty:
                 df_today[players] = df_today[players].apply(pd.to_numeric, errors='coerce').fillna(0)
-        except Exception:
-            # 如果是剛建立的空表，read 可能會失敗或返回空，這裡做保底
+        except:
             df_today = pd.DataFrame(columns=["Date"] + players + ["Winner", "Loser", "Method", "Fan", "Remark"])
 
-    # --- 3. 今日累計 Summary ---
+    # --- 4. 今日累計 Summary ---
     if not df_today.empty and len(df_today) > 0:
         today_sums = df_today[players].sum()
-        st.markdown("#### 📅 今日累計")
+        st.markdown("#### 📅 今日累計 (HKT)")
         cols = st.columns(4)
         for i, p in enumerate(players):
             val = today_sums[p]
@@ -64,11 +78,11 @@ def show_calculator(players):
                 </div>
             """, unsafe_allow_html=True)
     else:
-        st.info(f"🐣 今日 ({today_tab_name}) 尚未有紀錄")
+        st.info(f"🐣 香港時間 {today_tab_name} 尚未有紀錄")
 
     st.divider()
 
-    # --- 4. 錄入界面 ---
+    # --- 5. 錄入界面 ---
     if 'winner' not in st.session_state: st.session_state.winner = players[0]
     if 'loser' not in st.session_state: st.session_state.loser = players[1]
 
@@ -129,7 +143,7 @@ def show_calculator(players):
     if st.button("🚀 確認紀錄並上傳", use_container_width=True, type="primary"):
         with st.spinner('正在同步...'):
             new_entry = {
-                "Date": datetime.now().strftime("%H:%M"),
+                "Date": get_hong_kong_time().strftime("%H:%M"),
                 "Winner": st.session_state.winner,
                 "Loser": loser_display,
                 "Method": mode,
@@ -138,7 +152,7 @@ def show_calculator(players):
             }
             new_entry.update(res)
             try:
-                # 再次讀取最新數據進行合併
+                # 重新讀取以獲取最新列表進行合併
                 df_latest = conn.read(spreadsheet=SHEET_URL, worksheet=today_tab_name, ttl=0)
                 if df_latest.empty: updated_df = pd.DataFrame([new_entry])
                 else: updated_df = pd.concat([df_latest, pd.DataFrame([new_entry])], ignore_index=True)
@@ -146,30 +160,29 @@ def show_calculator(players):
                 conn.update(spreadsheet=SHEET_URL, worksheet=today_tab_name, data=updated_df)
                 st.success("✅ 紀錄成功")
                 st.rerun()
-            except Exception as e: st.error(f"上傳錯誤: {e}")
+            except Exception as e: st.error(f"上傳失敗: {e}")
 
     st.divider()
 
-    # --- 5. 管理今日數據 (查看、刪除、撤銷) ---
+    # --- 6. 管理今日數據 ---
     if not df_today.empty and len(df_today) > 0:
-        st.markdown("#### ⚙️ 今日對局清單")
+        st.markdown("#### ⚙️ 今日對局清單 (按時間倒序)")
         display_df = df_today.copy().sort_index(ascending=False)
         st.dataframe(display_df[["Date", "Winner", "Loser", "Method", "Fan"] + players], hide_index=True)
 
-        col_undo, col_clear = st.columns(2)
+        col_undo, col_edit = st.columns(2)
         with col_undo:
             if st.button("🗑️ 撤銷最後一局 (Undo)", use_container_width=True):
-                if len(df_today) > 0:
-                    updated_df = df_today.drop(df_today.index[-1])
-                    conn.update(spreadsheet=SHEET_URL, worksheet=today_tab_name, data=updated_df)
-                    st.toast("已刪除最後一筆紀錄")
-                    st.rerun()
+                updated_df = df_today.drop(df_today.index[-1])
+                conn.update(spreadsheet=SHEET_URL, worksheet=today_tab_name, data=updated_df)
+                st.toast("已刪除最後一筆紀錄")
+                st.rerun()
         
-        with col_clear:
-            with st.expander("📝 快速更正最後一局"):
+        with col_edit:
+            with st.expander("📝 修正備註"):
                 last_remark = str(df_today.iloc[-1]['Remark']) if 'Remark' in df_today.columns else ""
                 new_remark = st.text_input("修正最後一局備註", value=last_remark)
-                if st.button("💾 更新備註", use_container_width=True):
+                if st.button("💾 更新", use_container_width=True):
                     df_today.at[df_today.index[-1], 'Remark'] = new_remark
                     conn.update(spreadsheet=SHEET_URL, worksheet=today_tab_name, data=df_today)
                     st.rerun()
